@@ -22,6 +22,7 @@ from pet.constants import (
     PET_HEIGHT,
     STEP_SECONDS,
 )
+import pet.utils
 import pet.windows_utils
 
 from pet.signals import emitter
@@ -36,10 +37,11 @@ from pet.physics import (
 from pet.ai import register_active_window
 from pet.webview import PetWebView
 from pet.window_tracker import WindowTracker
+from pet.utils import loadConfig
 import os
 
-os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-ctypes.windll.user32.SetProcessDPIAware()
+# os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
+# ctypes.windll.user32.SetProcessDPIAware()
 
 _request_hit_test_func: Callable[[int, int], None] | None = None
 _send_command_threadsafe_func: Callable[[dict], None] | None = None
@@ -69,6 +71,7 @@ class PetWindow(QWidget):
     def __init__(self):
         super().__init__()
 
+        fconfig = pet.utils.loadConfig()
         register_active_window(self)
 
         self.setWindowTitle(WINDOW_TITLE)
@@ -92,7 +95,8 @@ class PetWindow(QWidget):
             self.webView.focusProxy().installEventFilter(self)  # type: ignore
 
         layout.addWidget(self.webView)
-        self.webView.load(QUrl("http://127.0.0.1:8000"))
+        self.webView.load(
+            QUrl(f"http://{fconfig['petServer']['host']}:{fconfig['petServer']['port']}"))
 
         self.screen_width, self.screen_height = pet.windows_utils.getScreenSize()
 

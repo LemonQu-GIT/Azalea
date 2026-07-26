@@ -2,7 +2,7 @@ import asyncio
 import traceback
 
 import uvicorn
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import FileResponse
 from fastapi.templating import Jinja2Templates
 from starlette.websockets import WebSocketDisconnect
@@ -13,10 +13,12 @@ from pet.websocketm import ws_manager
 from pet.ai import ai_brain_loop
 import pet.utils
 
+config = pet.utils.loadConfig()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    pet.utils.log("Server running on http://127.0.0.1:8000",
+    pet.utils.log(f"Server running on http://{config['petServer']['host']}:{config['petServer']['port']}",
                   "INFO", save=False)
     yield
     pet.utils.log("Server closed",
@@ -30,8 +32,14 @@ ai_task: asyncio.Task | None = None
 
 
 @app.get("/")
-async def get_index():
-    return templates.TemplateResponse("index.html", {"request": {}})
+async def get_index(request: Request):
+    scheme = request.url.scheme.replace("http", "ws")
+    host = request.url.netloc
+    ws_url = f"{scheme}://{host}/ws"
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "ws_url": ws_url}
+    )
 
 
 @app.get("/three.module.js")
@@ -94,8 +102,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 def start_fastapi_server(debug: bool = False):
-    config = uvicorn.Config("pet.server:app", host="127.0.0.1", port=8000, reload=True, log_level="debug") if debug else uvicorn.Config(
-        app, host="127.0.0.1", port=8000, log_level="error")
+    fconfig = pet.utils.loadConfig()
+    config = uvicorn.Config("pet.server:app", host=fconfig['petServer']['host'], port=fconfig['petServer']['port'], reload=True, log_level="debug") if debug else uvicorn.Config(
+        app, host=fconfig['petServer']['host'], port=fconfig['petServer']['port'], log_level="error")
     server = uvicorn.Server(config)
 
     loop = asyncio.new_event_loop()

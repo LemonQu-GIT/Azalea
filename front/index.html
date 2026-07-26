@@ -347,7 +347,8 @@
         return raycaster.intersectObject(model, true).length > 0;
       }
 
-      const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+      const wsUrl = "{{ ws_url }}";
+      const ws = new WebSocket(wsUrl);
 
       ws.onmessage = function (event) {
         const data = JSON.parse(event.data);

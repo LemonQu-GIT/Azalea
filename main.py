@@ -18,7 +18,8 @@ register_request_hit_test(request_hit_test)
 register_send_command_threadsafe(ws_manager.broadcast_threadsafe)
 
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-ctypes.windll.user32.SetProcessDPIAware()
+os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
+# ctypes.windll.user32.SetProcessDPIAware()
 
 
 def main():
@@ -27,6 +28,7 @@ def main():
     )
 
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
 
     api_thread = threading.Thread(target=start_fastapi_server, daemon=True)
     api_thread.start()

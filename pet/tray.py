@@ -35,6 +35,7 @@ class SettingsWindow(SplitFluentWindow):
     def initWindow(self):
         self.resize(800, 600)
         self.setWindowTitle("桌宠设置")
+        self.setWindowIcon(QIcon('./front/icon.png'))
         desktop = QApplication.screens()[0].availableGeometry()
         w, h = desktop.width(), desktop.height()
         self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
