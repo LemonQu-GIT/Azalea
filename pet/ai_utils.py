@@ -6,13 +6,14 @@ import cv2
 from PIL import Image
 import numpy as np
 import io
+from openai.types.chat import ChatCompletionMessageParam
 
 config = pet.utils.loadConfig()
 client = openai.OpenAI(
     base_url=config['llm']['endpoint'], api_key=config['llm']['api_key'])
 
 
-def format_bot_response(resp: str) -> dict | None:
+def format_response(resp: str) -> list | dict | None:
     try:
         answer = json.loads(resp)
         return answer
@@ -28,6 +29,7 @@ def format_bot_response(resp: str) -> dict | None:
                 answer = eval(resp)
                 return answer
             except:
+                print("unparseable:", resp)
                 return None
 
 
@@ -44,10 +46,12 @@ def img2base64(img: np.ndarray | Image.Image) -> str:
     return base64.b64encode(img_buffer.read()).decode('utf-8')
 
 
-def generate_response(messages: list[dict[str, str]]) -> str | None:
+def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = "medium") -> str | None:
+    assert reasoning_effort in ["none", "medium", "high"]
     response = client.chat.completions.create(
         model=config['llm']['model'],
-        messages=messages  # type: ignore
+        messages=messages,
+        reasoning_effort=reasoning_effort,  # type: ignore
     )
     if response.choices:
         return response.choices[0].message.content

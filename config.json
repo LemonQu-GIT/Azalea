@@ -62,17 +62,8 @@
     },
     "llm": {
         "endpoint": "http://localhost:11434/v1/",
-        "api_key": "",
+        "api_key": "ollama",
         "model": "qwen3.5:9b"
-    },
-    "identity": {
-        "pet": {
-            "name": "Mika"
-        },
-        "self": {
-            "name": "Lemon",
-            "suffix": "Sensei"
-        }
     },
     "petServer": {
         "host": "127.0.0.1",
