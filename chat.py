@@ -16,7 +16,7 @@ control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用
 - climb_window: 爬到某个窗口的左/右侧，格式为{"action": "climb_window", "hwnd": 123456}
 - jump_on_window: 跳到某个窗口上，格式为{"action": "jump_on_window", "hwnd": 123456}
 - jump_into_window: 跳进某个窗口，格式为{"action": "jump_into_window", "hwnd": 123456}
-你可以通过移动，爬到窗口，跳到窗口上，跳进窗口来和用户进行互动，但是如果用户在忙或是距离上一次活动还没过多久，那么你应该尽量避免打扰用户。
+你可以通过移动，爬到窗口，跳到窗口上，跳进窗口来和用户进行互动，但是如果用户在忙或是距离上一次做出行为还没过多久，那么你应该尽量避免打扰用户。
 你可以调用一定的系统工具，如获取窗口列表以获得窗口的句柄和位置，使用键盘和鼠标进行操作，获取用户的输入、运行一定的系统命令等。
 你需要根据用户的状态和行为来判断桌宠的行为，尽量让桌宠的行为看起来像是有生命的，具有一定的情绪和个性。
 你需要返回一个JSON列表，每个元素是一个行为，示例如下：
@@ -79,5 +79,42 @@ while True:
         last_activity_time = time.time()
         control_reply_json = pet.ai_utils.format_response(control_reply)
         if control_reply_json and isinstance(control_reply_json, list):
-            print(control_reply_json)
+            for task in control_reply_json:
+                print(f"task: {task}")
+                if task.get("action") == "chat":
+                    chat_messages.append(
+                        {"role": "user", "content": [
+                            {
+                                "type": "text",
+                                "text": f"大脑指令对话原因：{task.get('reason')}"
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{pet.ai_utils.img2base64(pyautogui.screenshot())}"
+                                }
+                            }
+                        ]})
+                    chat_reply = pet.ai_utils.generate_response(
+                        chat_messages)
+                    del chat_messages[-1]["content"][1]  # type: ignore
+                    if chat_reply:
+                        chat_messages.append(
+                            {"role": "assistant", "content": chat_reply})
+                        print(f"<<< {chat_reply}")
+                elif task.get("action") == "move":
+                    direction = task.get("direction")
+                    distance = task.get("distance")
+                    if direction and distance:
+                        pass
+                elif task.get("action") == "climb_window":
+                    hwnd = task.get("hwnd")
+                    if hwnd:
+                        pass
+                elif task.get("action") == "jump_on_window":
+                    hwnd = task.get("hwnd")
+                    if hwnd:
+                        pass
+
+    print("end loop")
     time.sleep(5)
