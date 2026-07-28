@@ -10,11 +10,13 @@ from openai.types.chat import ChatCompletionMessageParam
 
 import pet.ai_utils
 
+config = pet.ai_utils.config
+
 
 class MemoryManager:
     def __init__(self, path="./memory"):
         self.path = path
-        self.model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
+        self.model = SentenceTransformer(config["llm"]["embedding_model"])
 
         self.memory_file = os.path.join(path, "memory.json")
         self.index_file = os.path.join(path, "index.faiss")

@@ -11,6 +11,7 @@ import pet.utils
 config = pet.utils.loadConfig()
 client = OpenAI(
     base_url=config['llm']['endpoint'], api_key=config['llm']['api_key'])
+model = config['llm']['model']
 
 
 def get_windows_list() -> str:
@@ -132,13 +133,15 @@ tools = [
 ]
 
 
-def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = "qwen3.5:9b", max_iterations: int = 10) -> str:
-    for i in range(max_iterations):
+def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 10, reasoning_effort: str = "low") -> str:
+    assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
+    for _ in range(max_iterations):
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,  # type:ignore
             tool_choice="auto",
+            reasoning_effort=reasoning_effort,  # type: ignore
         )
         msg = response.choices[0].message
 

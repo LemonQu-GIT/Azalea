@@ -46,8 +46,8 @@ def img2base64(img: np.ndarray | Image.Image) -> str:
     return base64.b64encode(img_buffer.read()).decode('utf-8')
 
 
-def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = "medium") -> str | None:
-    assert reasoning_effort in ["none", "medium", "high"]
+def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = "low") -> str | None:
+    assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     response = client.chat.completions.create(
         model=config['llm']['model'],
         messages=messages,
