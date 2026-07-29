@@ -58,8 +58,23 @@ class WindowTracker:
         self.active_platform_hwnd: int | None = None
         self.ignored_container_hwnd: int | None = None
 
+        # 跳跃进入窗口期间抑制自动容器检测，防止被路径上/原窗口错误接住
+        self.suppress_auto_container_until = 0.0
+
         self.temporary_topmost_until = 0.0
         self.is_temporarily_topmost = False
+        self.is_drag_topmost = False
+
+    def suppress_auto_container(self, duration_seconds: float) -> None:
+        """在一段时间内禁止refresh_container_from_position自动检测容器。
+
+        用于jump_into_window期间，防止桌宠尚未飞离原窗口时又被检测回去，
+        或者路径上的中间窗口错误地成为容器。enter模式在结束时（成功或超时）
+        必须调用suppress_auto_container(0)解除抑制。
+        """
+        self.suppress_auto_container_until = (
+            time.monotonic() + max(0.0, duration_seconds)
+        )
 
     def get_window(self, hwnd: int | None) -> DesktopWindow | None:
         if hwnd is None:
@@ -108,6 +123,12 @@ class WindowTracker:
         x, y = physics.body.position
         container = None
 
+        # 跳跃进入窗口期间的抑制逻辑：
+        # - 如果已经有active_container（enter模式已成功附着），继续维护它的bounds同步
+        # - 如果没有active_container，禁止自动扫描新容器（防止原窗口/路径窗口干扰）
+        suppression_active = time.monotonic() < self.suppress_auto_container_until
+        auto_detect_blocked = suppression_active and self.active_container_hwnd is None
+
         if self.active_container_hwnd is not None:
             active_window = self.windows_by_hwnd.get(
                 self.active_container_hwnd)
@@ -118,7 +139,7 @@ class WindowTracker:
             ):
                 container = active_window
 
-        if container is None:
+        if container is None and not auto_detect_blocked:
             containing_windows = [
                 window
                 for window in self.desktop_windows
@@ -185,6 +206,11 @@ class WindowTracker:
         if self.active_container_hwnd is not None:
             return
 
+        # 跳跃进入窗口期间：抑制期内且没有active_container的情况下，
+        # 暂停所有顶部着陆检测，防止路径上的第三个窗口把桌宠截停在半空
+        if time.monotonic() < self.suppress_auto_container_until:
+            return
+
         gx, gy = physics.body.position
         pet_left = gx - COLLISION_WIDTH / 2
         pet_right = gx + COLLISION_WIDTH / 2
@@ -196,6 +222,9 @@ class WindowTracker:
 
         candidates = []
         for window in self.desktop_windows:
+            # 跳过被忽略的容器（例如jump_on_window的目标窗口等场景）
+            if window.hwnd == self.ignored_container_hwnd:
+                continue
             horizontal_overlap = (
                 pet_right > window.x + 8
                 and pet_left < window.right - 8
@@ -301,8 +330,59 @@ class WindowTracker:
     def activate_temporary_topmost(self) -> None:
         self.temporary_topmost_until = time.monotonic() + 0.45
 
+    def set_drag_topmost(self, enable: bool) -> None:
+        if self.self_hwnd is None:
+            return
+
+        try:
+            if enable:
+                win32gui.SetWindowPos(
+                    self.self_hwnd,
+                    win32con.HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    win32con.SWP_NOMOVE
+                    | win32con.SWP_NOSIZE
+                    | win32con.SWP_NOACTIVATE,
+                )
+                self.is_drag_topmost = True
+            else:
+                win32gui.SetWindowPos(
+                    self.self_hwnd,
+                    win32con.HWND_NOTOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    win32con.SWP_NOMOVE
+                    | win32con.SWP_NOSIZE
+                    | win32con.SWP_NOACTIVATE,
+                )
+                self.is_drag_topmost = False
+        except Exception:
+            pass
+
     def update_temporary_topmost(self) -> None:
         if self.self_hwnd is None:
+            return
+
+        # 拖拽期间始终置顶
+        if self.is_drag_topmost:
+            if not self.is_temporarily_topmost:
+                win32gui.SetWindowPos(
+                    self.self_hwnd,
+                    win32con.HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    win32con.SWP_NOMOVE
+                    | win32con.SWP_NOSIZE
+                    | win32con.SWP_NOACTIVATE,
+                )
+                self.is_temporarily_topmost = True
             return
 
         should_be_topmost = (
@@ -343,7 +423,7 @@ class WindowTracker:
                 self.sync_z_order_to_container(self.active_container_hwnd)
 
     def cleanup_topmost(self) -> None:
-        if self.self_hwnd is not None and self.is_temporarily_topmost:
+        if self.self_hwnd is not None and (self.is_temporarily_topmost or self.is_drag_topmost):
             win32gui.SetWindowPos(
                 self.self_hwnd,
                 win32con.HWND_NOTOPMOST,
@@ -356,6 +436,7 @@ class WindowTracker:
                 | win32con.SWP_NOACTIVATE,
             )
             self.is_temporarily_topmost = False
+            self.is_drag_topmost = False
 
     def reset_to_fullscreen(self, physics: PetPhysics) -> None:
         self.active_container_hwnd = None

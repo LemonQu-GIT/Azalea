@@ -8,6 +8,7 @@ import pet.utils
 import pet.ai_utils
 import pet.memory_utils
 import pet.tool_calling
+import pet.ai
 
 chat_sys_prompt = pet.ai_utils.chat_sys_prompt
 control_sys_prompt = pet.ai_utils.control_sys_prompt
@@ -118,15 +119,27 @@ while True:
                 elif task.get("action") == "climb_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pass  # 处理爬窗逻辑
+                        pet.ai.climb_window(int(hwnd))
+                        last_activity_time = now_time
+                        print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
                 elif task.get("action") == "jump_on_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pass  # 处理跳跃逻辑
+                        pet.ai.jump_on_window(int(hwnd))
+                        last_activity_time = now_time
+                        print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
                 elif task.get("action") == "jump_into_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pass  # 处理跳入逻辑
+                        pet.ai.jump_into_window(int(hwnd))
+                        last_activity_time = now_time
+                        print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
+                elif task.get("action") == "jump":
+                    height = int(task.get("height", 95))
+                    times = int(task.get("times", 1))
+                    pet.ai.jump(height=height, times=times)
+                    last_activity_time = now_time
+                    print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
                 elif task.get("action") == "schedule":
                     time_str = task.get("time")
                     content = task.get("content")

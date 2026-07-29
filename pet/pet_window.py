@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 import time
 import queue
@@ -21,6 +22,7 @@ from pet.constants import (
     PET_WIDTH,
     PET_HEIGHT,
     STEP_SECONDS,
+    GRAVITY,
 )
 import pet.utils
 import pet.windows_utils
@@ -223,6 +225,13 @@ class PetWindow(QWidget):
             except queue.Empty:
                 return
 
+            if command == "jump":
+                height = int(kwargs.get("height", 95))
+                times = int(kwargs.get("times", 1))
+                self._jump(height, times)
+                continue
+
+            # 其余命令需要 hwnd
             hwnd = kwargs.get("hwnd")
             if hwnd is None:
                 continue
@@ -272,6 +281,41 @@ class PetWindow(QWidget):
         self.physics.rebuild_bounds(
             (0, 0, self.screen_width, self.screen_height))
 
+    def _jump(self, height: int, times: int):
+        height = max(1, int(height))
+        times = max(1, int(times)) + 1
+
+        if (
+            self.ai_follow is not None
+            and self.ai_follow.get("mode") == "jump"
+        ):
+            self.ai_follow["remaining"] = int(
+                self.ai_follow.get("remaining", 0)) + times
+            return
+
+        v_up = -(2.0 * GRAVITY * float(height)) ** 0.5 * 1.08
+        self.tracker.activate_temporary_topmost()
+        vx, vy = self.physics.body.velocity
+        _, gy = self.physics.body.position
+        _, top, _, bottom = self.physics.bounds
+        floor_y = bottom - COLLISION_HEIGHT / 2
+        near_floor = abs(gy - floor_y) < 8.0 and vy >= -20.0
+
+        if near_floor:
+            self.physics.body.velocity = (vx, v_up)
+            self.physics.body.activate()
+            remaining = times - 1
+        else:
+            remaining = times
+
+        if remaining > 0 or not near_floor:
+            self.ai_follow = {
+                "mode": "jump",
+                "v_up": v_up,
+                "remaining": remaining,
+                "in_air": not near_floor,
+            }
+
     def _jump_on_window(self, hwnd: int):
         target = self.tracker.get_window(hwnd)
         if target is None:
@@ -301,7 +345,14 @@ class PetWindow(QWidget):
             return
 
         self.ai_follow = None
-        self.tracker.ignored_container_hwnd = None
+        self.tracker.active_container_hwnd = None
+        self.tracker.active_platform_hwnd = None
+        self.tracker.ignored_container_hwnd = hwnd
+        self.tracker.suppress_auto_container(2.5)
+        self.physics.rebuild_bounds(
+            (0, 0, self.screen_width, self.screen_height))
+        self.tracker.sync_z_order_to_container(hwnd)
+        self.tracker.activate_temporary_topmost()
 
         target_x = target.x + target.width / 2
         target_y = target.y + min(
@@ -310,11 +361,61 @@ class PetWindow(QWidget):
         )
 
         self.physics.launch_towards(target_x, target_y, arc_strength=650)
+        self.ai_follow = {
+            "mode": "enter",
+            "hwnd": hwnd,
+        }
 
     def _apply_ai_follow(self):
         if self.ai_follow is None:
             return
 
+        mode = self.ai_follow.get("mode")
+
+        # ----- jump 模式：不需要 hwnd，先单独处理 -----
+        if mode == "jump":
+            v_up = float(self.ai_follow.get("v_up", 0.0))
+            remaining = int(self.ai_follow.get("remaining", 0))
+            in_air = bool(self.ai_follow.get("in_air", False))
+
+            if remaining <= 0:
+                # 已无剩余跳跃，退出
+                self.ai_follow = None
+                return
+
+            _, gy = self.physics.body.position
+            vx, vy = self.physics.body.velocity
+            _, top, _, bottom = self.physics.bounds
+            floor_y = bottom - COLLISION_HEIGHT / 2
+
+            # 判断是否已落地（贴近底部且垂直速度下降或微小向上，并且没有继续上升）
+            touching_ground = abs(gy - floor_y) < 4.0
+            # 刚落地的标志：上一帧在空中，这一帧贴近地面，且 vy 不是大的向上速度
+            just_landed = in_air and touching_ground and vy >= -15.0
+            # 始终在地面：初始就在地面的边缘情况（remaining 还在但 near_floor 判断过）
+            standing = not in_air and touching_ground
+
+            if just_landed or standing:
+                # 执行下一次跳跃
+                self.physics.body.velocity = (vx, v_up)
+                self.physics.body.activate()
+                self.tracker.activate_temporary_topmost()
+                remaining -= 1
+                self.ai_follow["remaining"] = remaining
+                self.ai_follow["in_air"] = True  # 现在已腾空
+                if remaining <= 0:
+                    self.ai_follow = None
+                    return
+                return
+
+            # 在空中：更新 in_air 状态
+            if touching_ground and vy >= -15.0:
+                self.ai_follow["in_air"] = False
+            elif vy < -5.0 or not touching_ground:
+                self.ai_follow["in_air"] = True
+            return
+
+        # ----- 其余模式（climb / enter）需要 hwnd -----
         hwnd = int(self.ai_follow["hwnd"])
         target = self.tracker.get_window(hwnd)
 
@@ -362,6 +463,57 @@ class PetWindow(QWidget):
                 )
 
             self.tracker.sync_z_order_to_container(hwnd)
+
+        elif self.ai_follow.get("mode") == "enter":
+            gx, gy = self.physics.body.position
+            vx, vy = self.physics.body.velocity
+            speed = (vx * vx + vy * vy) ** 0.5
+            self.tracker.sync_z_order_to_container(hwnd)
+            margin = 4
+            inside_window = (
+                target.x + margin <= gx <= target.right - margin
+                and target.y + margin <= gy <= target.bottom - margin
+            )
+            near_target = (
+                abs(gx - (target.x + target.width / 2)) < COLLISION_WIDTH
+                and abs(gy - (target.y + min(
+                    target.height * 0.45, COLLISION_HEIGHT * 0.8))) < COLLISION_HEIGHT
+            )
+            can_attach = False
+            if inside_window:
+                if speed < 180 or near_target:
+                    can_attach = True
+                else:
+                    if "inside_since" not in self.ai_follow:
+                        self.ai_follow["inside_since"] = time.monotonic()
+
+                    elif time.monotonic() - int(self.ai_follow["inside_since"]) > 0.15:
+                        can_attach = True
+            else:
+                self.ai_follow.pop("inside_since", None)
+
+            if can_attach:
+                self.tracker.ignored_container_hwnd = None
+                self.tracker.suppress_auto_container(0)
+                self.tracker.active_container_hwnd = hwnd
+                self.tracker.active_platform_hwnd = None
+                self.physics.rebuild_bounds(
+                    (target.x, target.y, target.right, target.bottom))
+
+                self.physics.clamp_body_inside_bounds()
+
+                self.tracker.sync_z_order_to_container(hwnd)
+                self.tracker.activate_temporary_topmost()
+
+                self.ai_follow = None
+                return
+
+            if "start_time" not in self.ai_follow:
+                self.ai_follow["start_time"] = time.monotonic()
+            elif time.monotonic() - int(self.ai_follow["start_time"]) > 2.5:
+                self.tracker.ignored_container_hwnd = None
+                self.tracker.suppress_auto_container(0)
+                self.ai_follow = None
 
     def handle_model_hit_tested(self, hovering_model: bool, x: int, y: int):
         cursor_pos = QCursor.pos()
@@ -451,6 +603,7 @@ class PetWindow(QWidget):
         self.window_drag_active = True
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
         self.grabMouse()
+        self.tracker.set_drag_topmost(True)
 
         # self._play_drag_anim("CH0069_Formation_Pickup")
 
@@ -476,6 +629,7 @@ class PetWindow(QWidget):
 
         self.window_drag_active = False
         self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.tracker.set_drag_topmost(False)
         self._play_drag_anim("CH0069_Cafe_Idle")
 
     def handle_global_mouse_press(self, x, y):

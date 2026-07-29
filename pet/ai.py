@@ -29,9 +29,14 @@ def jump_into_window(hwnd: int):
         _active_window.enqueue_ai_command("jump_into_window", hwnd=int(hwnd))
 
 
+def jump(height: int = 95, times: int = 1):
+    if _active_window is not None:
+        _active_window.enqueue_ai_command("jump", height=height, times=times)
+
+
 async def ai_brain_loop():
     await asyncio.sleep(1)
     await pet_api.play_animation("CH0069_Cafe_Idle", loop=True)
     while True:
-        # await do_something()
-        break
+        jump(height=95, times=3)
+        await asyncio.sleep(6)
