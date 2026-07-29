@@ -82,11 +82,6 @@ class WindowTracker:
                 continue
             if width <= 0 or height <= 0:
                 continue
-            if (
-                width >= self.screen_width - 8
-                and height >= self.screen_height - 40
-            ):
-                continue
 
             windows.append(
                 DesktopWindow(

@@ -1,3 +1,4 @@
+from ctypes import wintypes
 import ctypes
 import ctypes.wintypes
 import win32gui
@@ -5,7 +6,7 @@ import time
 import cv2
 import numpy as np
 
-
+DWMWA_EXTENDED_FRAME_BOUNDS = 9
 ctypes.windll.user32.SetProcessDPIAware()
 
 
@@ -58,16 +59,21 @@ def isWindowVisible(hwnd: int) -> bool:
 
 
 def getWindowRect(hwnd: int) -> tuple[int | None, int | None, int | None, int | None]:
-    """
-    【修复根因】使用 Win32 GetWindowRect 替代 DwmGetWindowAttribute。
-    确保返回的矩形大小与 win32gui.MoveWindow 使用的矩形坐标系完全一致，
-    从根本上解决窗口每次移动都被扣掉阴影边框导致不断缩小的 bug。
-    """
-    user32 = ctypes.windll.user32
-    rect = ctypes.wintypes.RECT()
-    if user32.GetWindowRect(ctypes.wintypes.HWND(hwnd), ctypes.byref(rect)):
-        return rect.left, rect.top, rect.right, rect.bottom
-    return None, None, None, None
+    rect = wintypes.RECT()
+
+    ctypes.windll.dwmapi.DwmGetWindowAttribute(
+        hwnd,
+        DWMWA_EXTENDED_FRAME_BOUNDS,
+        ctypes.byref(rect),
+        ctypes.sizeof(rect)
+    )
+
+    return (
+        rect.left,
+        rect.top,
+        rect.right,
+        rect.bottom
+    )
 
 
 def getWindowsInZOrder() -> list[int]:
@@ -95,7 +101,6 @@ def getWindowTitle(hwnd: int) -> str:
 
 def getAllWindowsRects() -> list[tuple[str, int, int, int, int, int]]:
     z_order_hwnds = getWindowsInZOrder()
-
     rects: list[tuple[str, int, int, int, int, int]] = []
 
     for hwnd in z_order_hwnds:
@@ -107,9 +112,8 @@ def getAllWindowsRects() -> list[tuple[str, int, int, int, int, int]]:
 
         x, y, z, b = getWindowRect(hwnd)
         if x is not None and y is not None and z is not None and b is not None:
-            if x >= 0 and y >= 0 and z >= 0 and b >= 0:
+            if z - x > 0 and b - y > 0:
                 rects.append((title, hwnd, x, y, z - x, b - y))
-
     return rects
 
 
