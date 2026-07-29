@@ -21,7 +21,7 @@
       {
         "imports": {
           "three": "./three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
         }
       }
     </script>
@@ -250,29 +250,44 @@
         }
 
         console.log("可用动画列表:", Object.keys(actions));
-
+        window.THREE_DEBUG = {
+          actions: actions,
+          mixer: mixer,
+          getCurrentAction: () => currentAction,
+          switchAnimation: switchAnimation,
+        };
+        console.log(
+          'window.THREE_DEBUG.switchAnimation("CH0069_Cafe_Idle", true);',
+        );
         applyPendingTransform();
       });
 
-      function switchAnimation(animName, loop = true) {
+      function switchAnimation(animName, loop = true, fadeDuration = 0.2) {
         if (actions) {
           if (!actions[animName]) {
-            console.log(actions);
             console.warn(`找不到动画: ${animName}`);
             return;
           }
 
           const newAction = actions[animName];
           const oldAction = currentAction;
+          if (oldAction === newAction) return;
 
           newAction.reset();
           newAction.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce);
           if (!loop) newAction.clampWhenFinished = true;
-          newAction.play();
+          newAction.setEffectiveTimeScale(1);
+          newAction.setEffectiveWeight(1);
 
           if (oldAction) {
-            newAction.crossFadeFrom(oldAction, 0.5, true);
+            if (fadeDuration > 0) {
+              oldAction.crossFadeTo(newAction, fadeDuration, false);
+            } else {
+              oldAction.stop();
+            }
           }
+
+          newAction.play();
           currentAction = newAction;
         }
       }
@@ -353,7 +368,9 @@
       ws.onmessage = function (event) {
         const data = JSON.parse(event.data);
         if (data.command === "play_anim") {
-          switchAnimation(data.anim_name, data.loop);
+          const fadeDuration =
+            data.fade_duration !== undefined ? data.fade_duration : 0.2;
+          switchAnimation(data.anim_name, data.loop, fadeDuration);
         } else if (data.command === "set_transform") {
           updateModelTransform(data);
         } else if (data.command === "set_camera") {
