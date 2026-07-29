@@ -47,6 +47,11 @@ async def get_three_module():
     return FileResponse("front/three.module.js", media_type="application/javascript")
 
 
+@app.get("/three.core.js")
+async def get_three_core():
+    return FileResponse("front/three.core.js", media_type="application/javascript")
+
+
 @app.get("/model.glb")
 async def get_model():
     return FileResponse("./models/mika.glb", media_type="model/gltf-binary")

@@ -1,15 +1,25 @@
 import json
-from rich.console import Console
-import sys
 import os
+import sys
 from datetime import datetime
+
+from rich.console import Console
 
 console = Console()
 
 
+def _config_path() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "config.json"))
+
+
 def loadConfig():
-    with open('config.json', 'r') as f:
+    with open(_config_path(), 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def saveConfig(config: dict):
+    with open(_config_path(), 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
 
 
 def log(content: str, eventType: str, show: bool = True, save: bool = True):

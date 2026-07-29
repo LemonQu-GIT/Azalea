@@ -211,7 +211,6 @@ class MemoryManager:
                         max(old_score, score), old_memory)
 
         result = list(all_memories.values())
-        print(result)
         result.sort(key=lambda x: x[0], reverse=True)
 
         return [memory for score, memory in result]

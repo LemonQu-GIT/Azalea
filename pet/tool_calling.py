@@ -133,7 +133,7 @@ tools = [
 ]
 
 
-def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 10, reasoning_effort: str = "low") -> str:
+def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 10, reasoning_effort: str = "none") -> str:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     for _ in range(max_iterations):
         response = client.chat.completions.create(

@@ -2,10 +2,10 @@ from typing import Union
 import openai
 import json
 import base64
-import cv2
 from PIL import Image
 import numpy as np
 import io
+from datetime import datetime
 
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -46,7 +46,7 @@ def img2base64(img: np.ndarray | Image.Image) -> str:
     return base64.b64encode(img_buffer.read()).decode('utf-8')
 
 
-def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = "low") -> str | None:
+def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = "none") -> str | None:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     response = client.chat.completions.create(
         model=config['llm']['model'],
@@ -93,3 +93,39 @@ def truncate_context(
         result.append(final_sys_msg)
     result.extend(recent_messages)
     return result
+
+
+def parse_time(nowTime: int, time_str: str) -> int:
+    """
+    将时间字符串解析为时间戳。
+    支持的格式：
+    - "YYYY-MM-DD HH:MM:SS"
+    - "10s", "10m", "10h", "10d" 等表示未来多久的字符串
+    """
+    if time_str.isdigit():
+        return int(time_str)
+
+    if any(unit in time_str for unit in ['s', 'm', 'h', 'd']):
+        total_seconds = 0
+        num = ''
+        for char in time_str:
+            if char.isdigit():
+                num += char
+            else:
+                if num:
+                    if char == 's':
+                        total_seconds += int(num)
+                    elif char == 'm':
+                        total_seconds += int(num) * 60
+                    elif char == 'h':
+                        total_seconds += int(num) * 3600
+                    elif char == 'd':
+                        total_seconds += int(num) * 86400
+                    num = ''
+        return nowTime + total_seconds
+
+    try:
+        dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+        return int(dt.timestamp())
+    except ValueError:
+        raise ValueError(f"无法解析时间字符串: {time_str}")
