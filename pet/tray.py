@@ -1,13 +1,25 @@
-from PyQt6.QtGui import (QAction, QColor, QCursor, QIcon, QMouseEvent, QPixmap)
-from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
-    QApplication, QMenu, QSystemTrayIcon, QVBoxLayout, QWidget)
+    QApplication,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QMenu,
+    QMessageBox,
+    QSystemTrayIcon,
+    QVBoxLayout,
+    QWidget,
+)
+from qfluentwidgets import LineEdit, SpinBox, PrimaryPushButton
 from qfluentwidgets import (
     FluentIcon as FIF,
     SplitFluentWindow,
     SubtitleLabel,
     setFont,
 )
+
+from pet.utils import loadConfig, saveConfig
 
 
 class SettingsWidget(QWidget):
@@ -16,10 +28,82 @@ class SettingsWidget(QWidget):
         self.setObjectName("settingsInterface")
         self.vBoxLayout = QVBoxLayout(self)
         self.vBoxLayout.setContentsMargins(20, 48, 20, 20)
+        self.vBoxLayout.setSpacing(16)
 
         label = SubtitleLabel("AI 桌宠设置")
         setFont(label, 24)
         self.vBoxLayout.addWidget(label)
+
+        self.config = loadConfig()
+
+        self.llmGroup = QGroupBox("LLM 配置")
+        llmLayout = QFormLayout(self.llmGroup)
+        llmLayout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # qfluentwidgets LineEdit does not accept initial text as argument.
+        self.endpointEdit = LineEdit()
+        self.endpointEdit.setText(self.config["llm"]["endpoint"])
+        self.apiKeyEdit = LineEdit()
+        self.apiKeyEdit.setText(self.config["llm"]["api_key"])
+        self.modelEdit = LineEdit()
+        self.modelEdit.setText(self.config["llm"]["model"])
+        self.embeddingModelEdit = LineEdit()
+        self.embeddingModelEdit.setText(self.config["llm"]["embedding_model"])
+
+        llmLayout.addRow("endpoint", self.endpointEdit)
+        llmLayout.addRow("api_key", self.apiKeyEdit)
+        llmLayout.addRow("model", self.modelEdit)
+        llmLayout.addRow("embedding_model", self.embeddingModelEdit)
+
+        self.serverGroup = QGroupBox("PetServer 配置")
+        serverLayout = QFormLayout(self.serverGroup)
+        serverLayout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self.hostEdit = LineEdit()
+        self.hostEdit.setText(self.config["petServer"]["host"])
+        self.portEdit = SpinBox()
+        self.portEdit.setRange(1, 65535)
+        self.portEdit.setValue(int(self.config["petServer"]["port"]))
+
+        serverLayout.addRow("host", self.hostEdit)
+        serverLayout.addRow("port", self.portEdit)
+
+        self.saveButton = PrimaryPushButton("保存配置")
+        self.saveButton.clicked.connect(self.save_config)
+
+        self.vBoxLayout.addWidget(self.llmGroup)
+        self.vBoxLayout.addWidget(self.serverGroup)
+        self.vBoxLayout.addStretch(1)
+
+        buttonRow = QHBoxLayout()
+        buttonRow.addStretch(1)
+        buttonRow.addWidget(self.saveButton)
+        self.vBoxLayout.addLayout(buttonRow)
+
+    def save_config(self):
+        endpoint = self.endpointEdit.text().strip()
+        api_key = self.apiKeyEdit.text().strip()
+        model = self.modelEdit.text().strip()
+        embedding_model = self.embeddingModelEdit.text().strip()
+        host = self.hostEdit.text().strip()
+        port = self.portEdit.value()
+
+        if not all([endpoint, api_key, model, embedding_model, host]):
+            QMessageBox.warning(self, "保存失败", "请先填写完整的 LLM 和 petServer 配置。")
+            return
+
+        self.config["llm"].update(
+            {
+                "endpoint": endpoint,
+                "api_key": api_key,
+                "model": model,
+                "embedding_model": embedding_model,
+            }
+        )
+        self.config["petServer"].update({"host": host, "port": port})
+
+        saveConfig(self.config)
+        QMessageBox.information(self, "保存成功", "配置已保存，请重启程序后生效。")
 
 
 class SettingsWindow(SplitFluentWindow):
