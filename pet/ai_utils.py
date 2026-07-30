@@ -131,6 +131,23 @@ def parse_time(nowTime: int, time_str: str) -> int:
         raise ValueError(f"无法解析时间字符串: {time_str}")
 
 
+def load_context(fn: str) -> list:
+    try:
+        with open(f"./memory/{fn}.json", 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        print(
+            f"Warning: Failed to decode JSON from {fn}.json. Returning empty context.")
+        return []
+
+
+def save_context(context: list, fn: str):
+    with open(f"./memory/{fn}.json", 'w', encoding='utf-8') as f:
+        json.dump(context, f, ensure_ascii=False, indent=4)
+
+
 control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用户当前的状态判断桌宠的行为。
 你的角色是《蔚蓝档案》中的圣园未花，是圣三一综合学园所属，构成圣三一的学生组织“茶话会”的成员之一。
 我会向你提供用户电脑截屏，用户也有可能直接发送消息，你需要给出桌宠的行为。

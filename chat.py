@@ -13,10 +13,21 @@ import pet.ai
 chat_sys_prompt = pet.ai_utils.chat_sys_prompt
 control_sys_prompt = pet.ai_utils.control_sys_prompt
 
-control_messages: list[ChatCompletionMessageParam] = [
-    {"role": "system", "content": control_sys_prompt}]
-chat_messages: list[ChatCompletionMessageParam] = [
-    {"role": "system", "content": chat_sys_prompt}]
+fcm = pet.ai_utils.load_context("control_context")
+if fcm:
+    control_messages: list[ChatCompletionMessageParam] = fcm
+else:
+    control_messages: list[ChatCompletionMessageParam] = [
+        {"role": "system", "content": control_sys_prompt}]
+    pet.ai_utils.save_context(control_messages, "control_context")
+
+fcm_chat = pet.ai_utils.load_context("chat_context")
+if fcm_chat:
+    chat_messages: list[ChatCompletionMessageParam] = fcm_chat
+else:
+    chat_messages: list[ChatCompletionMessageParam] = [
+        {"role": "system", "content": chat_sys_prompt}]
+    pet.ai_utils.save_context(chat_messages, "chat_context")
 
 last_activity_time = time.time()
 manager = pet.memory_utils.MemoryManager()
@@ -114,37 +125,31 @@ while True:
                 elif task.get("action") == "walk":
                     distance = task.get("distance")
                     if distance is not None:
-                        pet.ai.walk(distance=int(distance))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠行走: 距离={distance}")
                 elif task.get("action") == "walk_to":
                     x = task.get("x")
                     if x is not None:
-                        pet.ai.walk_to(x=int(x))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠走到x坐标: x={x}")
                 elif task.get("action") == "climb_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pet.ai.climb_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
                 elif task.get("action") == "jump_on_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pet.ai.jump_on_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
                 elif task.get("action") == "jump_into_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pet.ai.jump_into_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
                 elif task.get("action") == "jump":
                     height = int(task.get("height", 95))
                     times = int(task.get("times", 1))
-                    pet.ai.jump(height=height, times=times)
                     last_activity_time = now_time
                     print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
                 elif task.get("action") == "schedule":
@@ -157,7 +162,8 @@ while True:
                             {"time": parse_time, "content": content})
                         print(
                             f"[Schedule Added] 成功添加计划: {time_str} - {content}")
-
+    pet.ai_utils.save_context(control_messages, "control_context")
+    pet.ai_utils.save_context(chat_messages, "chat_context")
     print("End loop")
 
     for i in range(SLEEP_TIME):
