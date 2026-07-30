@@ -51,7 +51,7 @@
             "left": 166,
             "right": 155,
             "top": 154,
-            "bottom": 105
+            "bottom": 111
         },
         "physics": {
             "step_seconds": 0.016666666666666666,

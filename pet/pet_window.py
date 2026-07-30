@@ -230,8 +230,17 @@ class PetWindow(QWidget):
                 times = int(kwargs.get("times", 1))
                 self._jump(height, times)
                 continue
+            elif command == "walk":
+                distance = int(kwargs.get("distance", 0))
+                if distance != 0:
+                    self._walk(distance)
+                continue
+            elif command == "walk_to":
+                target_x = int(kwargs.get("x", -1))
+                if target_x >= 0:
+                    self._walk_to(target_x)
+                continue
 
-            # 其余命令需要 hwnd
             hwnd = kwargs.get("hwnd")
             if hwnd is None:
                 continue
@@ -315,6 +324,63 @@ class PetWindow(QWidget):
                 "remaining": remaining,
                 "in_air": not near_floor,
             }
+
+    def _walk(self, distance: int):
+        distance = int(distance)
+        if distance == 0:
+            return
+        walk_speed_mag = 260.0
+        if (
+            self.ai_follow is not None
+            and self.ai_follow.get("mode") == "walk"
+        ):
+            current_remaining = float(self.ai_follow.get("remaining", 0.0))
+            new_remaining = current_remaining + float(distance)
+            if abs(new_remaining) < 1.0:
+                self.ai_follow = None
+            else:
+                self.ai_follow["remaining"] = new_remaining
+                self.ai_follow["speed"] = (
+                    walk_speed_mag if new_remaining > 0 else -walk_speed_mag
+                )
+            return
+
+        self.tracker.activate_temporary_topmost()
+
+        self.ai_follow = {
+            "mode": "walk",
+            "remaining": float(distance),
+            "speed": walk_speed_mag if distance > 0 else -walk_speed_mag,
+        }
+
+    def _walk_to(self, target_x: int):
+        target_x = int(target_x)
+
+        left, top, right, bottom = self.physics.bounds
+        min_x = int(left + COLLISION_WIDTH / 2)
+        max_x = int(right - COLLISION_WIDTH / 2)
+        target_x_clamped = max(min_x, min(max_x, target_x))
+
+        gx, _ = self.physics.body.position
+        current_x = int(gx)
+        distance = target_x_clamped - current_x
+
+        if abs(distance) < 2:
+            return
+        walk_speed_mag = 260.0
+        if (
+            self.ai_follow is not None
+            and self.ai_follow.get("mode") in ("walk", "walk_to")
+        ):
+            self.ai_follow = None
+        self.tracker.activate_temporary_topmost()
+
+        self.ai_follow = {
+            "mode": "walk_to",
+            "target_x": float(target_x_clamped),
+            "distance": float(distance),
+            "speed": walk_speed_mag if distance > 0 else -walk_speed_mag,
+        }
 
     def _jump_on_window(self, hwnd: int):
         target = self.tracker.get_window(hwnd)
@@ -413,6 +479,90 @@ class PetWindow(QWidget):
                 self.ai_follow["in_air"] = False
             elif vy < -5.0 or not touching_ground:
                 self.ai_follow["in_air"] = True
+            return
+
+        # ----- walk 模式：不需要 hwnd -----
+        if mode == "walk":
+            remaining = float(self.ai_follow.get("remaining", 0.0))
+            speed = float(self.ai_follow.get("speed", 0.0))
+
+            if abs(remaining) < 0.5 or abs(speed) < 1.0:
+                self.ai_follow = None
+                return
+
+            # 计算本帧应移动的距离
+            step = speed * STEP_SECONDS
+
+            # 剩余距离不足一步：只走剩余的量，然后停下
+            if abs(step) > abs(remaining):
+                step = remaining
+                speed_dir = 1.0 if remaining > 0 else -1.0
+                # 到达终点：把速度置为一个较短的步进值，避免冲过头
+                overshoot_fix = remaining / max(STEP_SECONDS, 1e-6)
+                vx_cur, vy_cur = self.physics.body.velocity
+                self.physics.body.velocity = (overshoot_fix, vy_cur)
+                self.physics.body.activate()
+
+                self.ai_follow = None
+                return
+
+            # 正常推进：直接设置水平速度（保持原有竖直速度，让重力/地面碰撞正常）
+            vx_cur, vy_cur = self.physics.body.velocity
+            self.physics.body.velocity = (speed, vy_cur)
+            self.physics.body.activate()
+
+            remaining -= step
+            self.ai_follow["remaining"] = remaining
+
+            # 偶尔激活临时置顶，保持在前面
+            if abs(remaining) % 80 < abs(step) * 1.1:
+                self.tracker.activate_temporary_topmost()
+
+            if abs(remaining) < 0.5:
+                self.ai_follow = None
+            return
+
+        # ----- walk_to 模式：不需要 hwnd -----
+        if mode == "walk_to":
+            target_x = float(self.ai_follow.get("target_x", 0.0))
+            speed_mag = abs(float(self.ai_follow.get("speed", 260.0)))
+
+            # 动态重算目标的可达范围（bounds 可能在容器切换中变化）
+            left, top, right, bottom = self.physics.bounds
+            min_x = left + COLLISION_WIDTH / 2
+            max_x = right - COLLISION_WIDTH / 2
+            effective_target = max(min_x, min(max_x, target_x))
+
+            gx, _ = self.physics.body.position
+            diff = effective_target - gx
+
+            if abs(diff) < 1.0:
+                # 已到达目标
+                vx_cur, vy_cur = self.physics.body.velocity
+                self.physics.body.velocity = (0.0, vy_cur)
+                self.ai_follow = None
+                return
+
+            # 距离小于一步时，精确停下不冲过
+            max_step = speed_mag * STEP_SECONDS
+            if abs(diff) <= max_step:
+                step = diff
+                vx_fix = step / max(STEP_SECONDS, 1e-6)
+                vx_cur, vy_cur = self.physics.body.velocity
+                self.physics.body.velocity = (vx_fix, vy_cur)
+                self.physics.body.activate()
+                self.ai_follow = None
+                return
+
+            # 正常推进：按 diff 符号设置速度
+            desired_speed = speed_mag if diff > 0 else -speed_mag
+            vx_cur, vy_cur = self.physics.body.velocity
+            self.physics.body.velocity = (desired_speed, vy_cur)
+            self.physics.body.activate()
+
+            # 偶尔激活临时置顶
+            if abs(diff) % 80 < max_step * 1.1:
+                self.tracker.activate_temporary_topmost()
             return
 
         # ----- 其余模式（climb / enter）需要 hwnd -----

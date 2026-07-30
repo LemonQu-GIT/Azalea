@@ -111,33 +111,29 @@ while True:
                                 print(
                                     f"[Memory Saved] 成功记录新的长期记忆: {mem['content']}")
 
-                elif task.get("action") == "move":
-                    direction = task.get("direction")
+                elif task.get("action") == "walk":
                     distance = task.get("distance")
-                    if direction and distance:
-                        pass  # 处理移动逻辑
+                    if distance is not None:
+                        last_activity_time = now_time
+                        print(f"[Action] 桌宠行走: 距离={distance}")
                 elif task.get("action") == "climb_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pet.ai.climb_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
                 elif task.get("action") == "jump_on_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pet.ai.jump_on_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
                 elif task.get("action") == "jump_into_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
-                        pet.ai.jump_into_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
                 elif task.get("action") == "jump":
                     height = int(task.get("height", 95))
                     times = int(task.get("times", 1))
-                    pet.ai.jump(height=height, times=times)
                     last_activity_time = now_time
                     print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
                 elif task.get("action") == "schedule":
