@@ -110,6 +110,11 @@ class PetWindow(QWidget):
                                               dict[str, int]]] = queue.Queue()
         self.ai_follow: dict[str, int | str | float] | None = None
 
+        # 行为完成同步追踪：ai_brain_loop(异步线程) <-> Qt物理更新(主线程)
+        # 每项: {action_id: {"loop": asyncio.Loop, "event": asyncio.Event, "timeout": float_deadline}}
+        self._pending_actions: dict[int, dict] = {}
+        self._next_action_id: int = 1
+
         self.click_through_enabled = False
         self.pointer_over_model = False
         self.last_model_hit_at = 0.0
@@ -178,6 +183,8 @@ class PetWindow(QWidget):
         self.physics.clamp_body_inside_bounds()
         self._move_qt_window_to_body()
         self.tracker.update_temporary_topmost()
+        # 行为完成追踪：清理超时的pending action
+        self._cleanup_timed_out_actions()
 
     def _move_qt_window_to_body(self):
         gx, gy = self.physics.body.position
@@ -215,6 +222,61 @@ class PetWindow(QWidget):
 
         return super().eventFilter(watched, event)
 
+    # ---------- 行为完成追踪：异步线程(ai_brain)与Qt物理主循环之间同步 ----------
+    def register_action_completion(
+        self,
+        asyncio_loop,
+        asyncio_event,
+        timeout_seconds: float,
+    ) -> int:
+        """给排队中的命令登记一个完成事件，返回 action_id。
+
+        调用方（ai_brain_loop的异步线程）应把这个action_id通过command_queue的kwargs
+        以 _action_id=N 形式送入；当对应ai_follow自然完成/被替换/超时时，会通过
+        loop.call_soon_threadsafe(event.set) 通知异步线程。
+        """
+        action_id = self._next_action_id
+        self._next_action_id += 1
+        self._pending_actions[action_id] = {
+            "loop": asyncio_loop,
+            "event": asyncio_event,
+            "deadline": time.monotonic() + max(0.1, float(timeout_seconds)),
+        }
+        return action_id
+
+    def _signal_action_completion(self, action_id: int):
+        """当某 action 完成（自然结束/取消/覆盖/超时）时唤醒异步等待者。"""
+        info = self._pending_actions.pop(int(action_id), None)
+        if info is None:
+            return
+        try:
+            loop = info["loop"]
+            event = info["event"]
+            if loop is not None and event is not None:
+                loop.call_soon_threadsafe(event.set)
+        except Exception:
+            pass
+
+    def _cleanup_timed_out_actions(self):
+        """每帧检查：超过deadline的pending action直接超时回调。"""
+        now = time.monotonic()
+        expired = [
+            aid for aid, info in self._pending_actions.items()
+            if info.get("deadline", 0.0) < now
+        ]
+        for aid in expired:
+            self._signal_action_completion(aid)
+
+    def _signal_current_ai_follow_completion(self):
+        """若当前ai_follow里带了_action_id，则触发其完成事件并从ai_follow中剥离。"""
+        if self.ai_follow is None:
+            return
+        aid = self.ai_follow.get("_action_id")
+        if aid is None:
+            return
+        self.ai_follow["_action_id"] = None  # type:ignore
+        self._signal_action_completion(int(aid))
+
     def enqueue_ai_command(self, command: str, **kwargs: int):
         self.command_queue.put((command, kwargs))
 
@@ -225,37 +287,58 @@ class PetWindow(QWidget):
             except queue.Empty:
                 return
 
+            # 提取完成追踪id（不参与行为参数）
+            action_id = kwargs.pop("_action_id", None)
+
             if command == "jump":
                 height = int(kwargs.get("height", 95))
                 times = int(kwargs.get("times", 1))
-                self._jump(height, times)
+                self._jump(height, times, action_id=action_id)
                 continue
             elif command == "walk":
                 distance = int(kwargs.get("distance", 0))
                 if distance != 0:
-                    self._walk(distance)
+                    self._walk(distance, action_id=action_id)
+                else:
+                    if action_id is not None:
+                        self._signal_action_completion(int(action_id))
                 continue
             elif command == "walk_to":
                 target_x = int(kwargs.get("x", -1))
                 if target_x >= 0:
-                    self._walk_to(target_x)
+                    self._walk_to(target_x, action_id=action_id)
+                else:
+                    if action_id is not None:
+                        self._signal_action_completion(int(action_id))
                 continue
 
             hwnd = kwargs.get("hwnd")
             if hwnd is None:
+                # 没有hwnd也没有已匹配到的其他命令 → 若有action_id需清掉，防止永久等待
+                if action_id is not None:
+                    self._signal_action_completion(int(action_id))
                 continue
 
             if command == "climb_window":
-                self._start_climbing(hwnd)
+                self._start_climbing(int(hwnd), action_id=action_id)
             elif command == "jump_on_window":
-                self._jump_on_window(hwnd)
+                self._jump_on_window(int(hwnd), action_id=action_id)
             elif command == "jump_into_window":
-                self._jump_into_window(hwnd)
+                self._jump_into_window(int(hwnd), action_id=action_id)
+            else:
+                # 未知命令，避免action_id永久悬挂
+                if action_id is not None:
+                    self._signal_action_completion(int(action_id))
 
-    def _start_climbing(self, hwnd: int):
+    def _start_climbing(self, hwnd: int, action_id: int | None = None):
         target = self.tracker.get_window(hwnd)
         if target is None:
+            if action_id is not None:
+                self._signal_action_completion(int(action_id))
             return
+
+        # 若上一个ai_follow附带action_id，先触发其完成（被新的climb覆盖）
+        self._signal_current_ai_follow_completion()
 
         gx, gy = self.physics.body.position
 
@@ -284,13 +367,15 @@ class PetWindow(QWidget):
             "side": side,
             "offset_y": offset_y,
         }
+        if action_id is not None:
+            self.ai_follow["_action_id"] = int(action_id)
 
         self.tracker.ignored_container_hwnd = hwnd
         self.tracker.active_container_hwnd = None
         self.physics.rebuild_bounds(
             (0, 0, self.screen_width, self.screen_height))
 
-    def _jump(self, height: int, times: int):
+    def _jump(self, height: int, times: int, action_id: int | None = None):
         height = max(1, int(height))
         times = max(1, int(times)) + 1
 
@@ -298,9 +383,16 @@ class PetWindow(QWidget):
             self.ai_follow is not None
             and self.ai_follow.get("mode") == "jump"
         ):
+            # 已在jump序列中：累加次数，并且若有新的action_id则覆盖旧的（旧的先signal完成）
+            self._signal_current_ai_follow_completion()
             self.ai_follow["remaining"] = int(
                 self.ai_follow.get("remaining", 0)) + times
+            if action_id is not None:
+                self.ai_follow["_action_id"] = int(action_id)
             return
+
+        # 覆盖其他ai_follow模式（带action_id的要先signal）
+        self._signal_current_ai_follow_completion()
 
         v_up = -(2.0 * GRAVITY * float(height)) ** 0.5 * 1.08
         self.tracker.activate_temporary_topmost()
@@ -324,26 +416,44 @@ class PetWindow(QWidget):
                 "remaining": remaining,
                 "in_air": not near_floor,
             }
+            if action_id is not None:
+                self.ai_follow["_action_id"] = int(action_id)
+        elif action_id is not None:
+            # 只跳1次而且已经在地面立刻起跳，但remaining会是0（times=1 times+1=2 near_floor remaining=1? 让我再检查：
+            # times = max(1,1)+1 = 2. near_floor: remaining = 2-1 = 1 >0 → 进入上面分支
+            # 所以这个分支基本不会触发。保留以防万一。
+            self._signal_action_completion(int(action_id))
 
-    def _walk(self, distance: int):
+    def _walk(self, distance: int, action_id: int | None = None):
         distance = int(distance)
         if distance == 0:
+            if action_id is not None:
+                self._signal_action_completion(int(action_id))
             return
         walk_speed_mag = 260.0
         if (
             self.ai_follow is not None
             and self.ai_follow.get("mode") == "walk"
         ):
+            # 已在walk模式：先signal旧的action_id，合并新的
+            self._signal_current_ai_follow_completion()
             current_remaining = float(self.ai_follow.get("remaining", 0.0))
             new_remaining = current_remaining + float(distance)
             if abs(new_remaining) < 1.0:
                 self.ai_follow = None
+                if action_id is not None:
+                    self._signal_action_completion(int(action_id))
             else:
                 self.ai_follow["remaining"] = new_remaining
                 self.ai_follow["speed"] = (
                     walk_speed_mag if new_remaining > 0 else -walk_speed_mag
                 )
+                if action_id is not None:
+                    self.ai_follow["_action_id"] = int(action_id)
             return
+
+        # 覆盖其他ai_follow模式
+        self._signal_current_ai_follow_completion()
 
         self.tracker.activate_temporary_topmost()
 
@@ -352,8 +462,10 @@ class PetWindow(QWidget):
             "remaining": float(distance),
             "speed": walk_speed_mag if distance > 0 else -walk_speed_mag,
         }
+        if action_id is not None:
+            self.ai_follow["_action_id"] = int(action_id)
 
-    def _walk_to(self, target_x: int):
+    def _walk_to(self, target_x: int, action_id: int | None = None):
         target_x = int(target_x)
 
         left, top, right, bottom = self.physics.bounds
@@ -365,8 +477,15 @@ class PetWindow(QWidget):
         current_x = int(gx)
         distance = target_x_clamped - current_x
 
+        # 覆盖任何正在进行的其他ai_follow
+        self._signal_current_ai_follow_completion()
+
         if abs(distance) < 2:
+            # 已经在目标位置
+            if action_id is not None:
+                self._signal_action_completion(int(action_id))
             return
+
         walk_speed_mag = 260.0
         if (
             self.ai_follow is not None
@@ -381,11 +500,18 @@ class PetWindow(QWidget):
             "distance": float(distance),
             "speed": walk_speed_mag if distance > 0 else -walk_speed_mag,
         }
+        if action_id is not None:
+            self.ai_follow["_action_id"] = int(action_id)
 
-    def _jump_on_window(self, hwnd: int):
+    def _jump_on_window(self, hwnd: int, action_id: int | None = None):
         target = self.tracker.get_window(hwnd)
         if target is None:
+            if action_id is not None:
+                self._signal_action_completion(int(action_id))
             return
+
+        # 覆盖其他ai_follow模式（带action_id的先signal）
+        self._signal_current_ai_follow_completion()
 
         self.ai_follow = None
         self.tracker.active_container_hwnd = None
@@ -405,10 +531,26 @@ class PetWindow(QWidget):
 
         self.physics.launch_towards(target_x, target_y, arc_strength=900)
 
-    def _jump_into_window(self, hwnd: int):
+        # 新增 ai_follow jump_on 模式：等待落到目标窗口顶部
+        self.ai_follow = {
+            "mode": "jump_on",
+            "hwnd": hwnd,
+            "target_x": float(target_x),
+            "target_y": float(target_y),
+            "start_time": time.monotonic(),
+        }
+        if action_id is not None:
+            self.ai_follow["_action_id"] = int(action_id)
+
+    def _jump_into_window(self, hwnd: int, action_id: int | None = None):
         target = self.tracker.get_window(hwnd)
         if target is None or not target.can_contain_pet_window():
+            if action_id is not None:
+                self._signal_action_completion(int(action_id))
             return
+
+        # 覆盖其他ai_follow模式（带action_id的先signal）
+        self._signal_current_ai_follow_completion()
 
         self.ai_follow = None
         self.tracker.active_container_hwnd = None
@@ -431,6 +573,8 @@ class PetWindow(QWidget):
             "mode": "enter",
             "hwnd": hwnd,
         }
+        if action_id is not None:
+            self.ai_follow["_action_id"] = int(action_id)
 
     def _apply_ai_follow(self):
         if self.ai_follow is None:
@@ -446,6 +590,7 @@ class PetWindow(QWidget):
 
             if remaining <= 0:
                 # 已无剩余跳跃，退出
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
                 return
 
@@ -470,6 +615,7 @@ class PetWindow(QWidget):
                 self.ai_follow["remaining"] = remaining
                 self.ai_follow["in_air"] = True  # 现在已腾空
                 if remaining <= 0:
+                    self._signal_current_ai_follow_completion()
                     self.ai_follow = None
                     return
                 return
@@ -487,6 +633,7 @@ class PetWindow(QWidget):
             speed = float(self.ai_follow.get("speed", 0.0))
 
             if abs(remaining) < 0.5 or abs(speed) < 1.0:
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
                 return
 
@@ -503,6 +650,7 @@ class PetWindow(QWidget):
                 self.physics.body.velocity = (overshoot_fix, vy_cur)
                 self.physics.body.activate()
 
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
                 return
 
@@ -519,6 +667,7 @@ class PetWindow(QWidget):
                 self.tracker.activate_temporary_topmost()
 
             if abs(remaining) < 0.5:
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
             return
 
@@ -540,6 +689,7 @@ class PetWindow(QWidget):
                 # 已到达目标
                 vx_cur, vy_cur = self.physics.body.velocity
                 self.physics.body.velocity = (0.0, vy_cur)
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
                 return
 
@@ -551,6 +701,7 @@ class PetWindow(QWidget):
                 vx_cur, vy_cur = self.physics.body.velocity
                 self.physics.body.velocity = (vx_fix, vy_cur)
                 self.physics.body.activate()
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
                 return
 
@@ -565,11 +716,51 @@ class PetWindow(QWidget):
                 self.tracker.activate_temporary_topmost()
             return
 
+        # ----- jump_on 模式：跳到窗口顶部的落地追踪（不需要 hwnd 键，已提前读入） -----
+        if mode == "jump_on":
+            hwnd = int(self.ai_follow.get("hwnd", 0))
+            start_time = float(self.ai_follow.get("start_time", 0.0))
+            target = self.tracker.get_window(hwnd)
+            if target is None:
+                # 目标窗口消失 → 认为完成
+                self._signal_current_ai_follow_completion()
+                self.ai_follow = None
+                return
+
+            gx, gy = self.physics.body.position
+            vx, vy = self.physics.body.velocity
+            speed_sq = vx * vx + vy * vy
+            _, _, _, bottom = self.physics.bounds
+            floor_y = bottom - COLLISION_HEIGHT / 2
+
+            # 判定已"落到窗口顶部"：要么tracker已经把active_platform设置为目标hwnd，
+            # 要么桌宠垂直位置已经在窗口顶部附近且速度很小（落地）
+            tracker_landed = (
+                self.tracker.active_platform_hwnd == hwnd
+                or self.tracker.active_container_hwnd == hwnd
+            )
+
+            on_platform = abs(gy - (target.y - COLLISION_HEIGHT / 2)) < 8.0
+            low_speed = speed_sq < 220.0 * 220.0   # 落地后速度通常很小
+            touched_floor = abs(gy - floor_y) < 4.0  # 没跳到平台上，掉地上了
+
+            landed = tracker_landed or (
+                on_platform and low_speed) or touched_floor
+            timeout = time.monotonic() - start_time > 4.0
+
+            if landed or timeout:
+                self.tracker.ignored_container_hwnd = None
+                self._signal_current_ai_follow_completion()
+                self.ai_follow = None
+                return
+            return
+
         # ----- 其余模式（climb / enter）需要 hwnd -----
         hwnd = int(self.ai_follow["hwnd"])
         target = self.tracker.get_window(hwnd)
 
         if target is None:
+            self._signal_current_ai_follow_completion()
             self.ai_follow = None
             return
 
@@ -614,6 +805,28 @@ class PetWindow(QWidget):
 
             self.tracker.sync_z_order_to_container(hwnd)
 
+            # climb模式是吸附式移动；速度设置后每帧追。这里没有显式"到达"判定，
+            # 所以加一个到达后稳定0.1秒作为climb完成：
+            if abs(dx) < 3 and abs(dy) < 3:
+                if "stuck_since" not in self.ai_follow:
+                    self.ai_follow["stuck_since"] = time.monotonic()
+                elif time.monotonic() - float(self.ai_follow["stuck_since"]) > 0.12:
+                    self.tracker.ignored_container_hwnd = None
+                    self._signal_current_ai_follow_completion()
+                    self.ai_follow = None
+                    return
+            else:
+                self.ai_follow.pop("stuck_since", None)
+
+            # climb 超时保护（防止窗口关闭但target依然存在异常）
+            if "start_time" not in self.ai_follow:
+                self.ai_follow["start_time"] = time.monotonic()
+            elif time.monotonic() - float(self.ai_follow["start_time"]) > 8.0:
+                self.tracker.ignored_container_hwnd = None
+                self._signal_current_ai_follow_completion()
+                self.ai_follow = None
+                return
+
         elif self.ai_follow.get("mode") == "enter":
             gx, gy = self.physics.body.position
             vx, vy = self.physics.body.velocity
@@ -637,7 +850,7 @@ class PetWindow(QWidget):
                     if "inside_since" not in self.ai_follow:
                         self.ai_follow["inside_since"] = time.monotonic()
 
-                    elif time.monotonic() - int(self.ai_follow["inside_since"]) > 0.15:
+                    elif time.monotonic() - float(self.ai_follow["inside_since"]) > 0.15:
                         can_attach = True
             else:
                 self.ai_follow.pop("inside_since", None)
@@ -655,14 +868,16 @@ class PetWindow(QWidget):
                 self.tracker.sync_z_order_to_container(hwnd)
                 self.tracker.activate_temporary_topmost()
 
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
                 return
 
             if "start_time" not in self.ai_follow:
                 self.ai_follow["start_time"] = time.monotonic()
-            elif time.monotonic() - int(self.ai_follow["start_time"]) > 2.5:
+            elif time.monotonic() - float(self.ai_follow["start_time"]) > 2.5:
                 self.tracker.ignored_container_hwnd = None
                 self.tracker.suppress_auto_container(0)
+                self._signal_current_ai_follow_completion()
                 self.ai_follow = None
 
     def handle_model_hit_tested(self, hovering_model: bool, x: int, y: int):
@@ -745,6 +960,7 @@ class PetWindow(QWidget):
         if self.click_through_enabled:
             self.set_click_through(False)
 
+        self._signal_current_ai_follow_completion()
         self.ai_follow = None
         self.tracker.reset_to_fullscreen(self.physics)
 
@@ -780,7 +996,7 @@ class PetWindow(QWidget):
         self.window_drag_active = False
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.tracker.set_drag_topmost(False)
-        self._play_drag_anim("CH0069_Cafe_Idle")
+        # self._play_drag_anim("CH0069_Cafe_Idle")
 
     def handle_global_mouse_press(self, x, y):
         window_rect = self.frameGeometry()

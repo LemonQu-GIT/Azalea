@@ -114,26 +114,37 @@ while True:
                 elif task.get("action") == "walk":
                     distance = task.get("distance")
                     if distance is not None:
+                        pet.ai.walk(distance=int(distance))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠行走: 距离={distance}")
+                elif task.get("action") == "walk_to":
+                    x = task.get("x")
+                    if x is not None:
+                        pet.ai.walk_to(x=int(x))
+                        last_activity_time = now_time
+                        print(f"[Action] 桌宠走到x坐标: x={x}")
                 elif task.get("action") == "climb_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
+                        pet.ai.climb_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
                 elif task.get("action") == "jump_on_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
+                        pet.ai.jump_on_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
                 elif task.get("action") == "jump_into_window":
                     hwnd = task.get("hwnd")
                     if hwnd:
+                        pet.ai.jump_into_window(int(hwnd))
                         last_activity_time = now_time
                         print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
                 elif task.get("action") == "jump":
                     height = int(task.get("height", 95))
                     times = int(task.get("times", 1))
+                    pet.ai.jump(height=height, times=times)
                     last_activity_time = now_time
                     print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
                 elif task.get("action") == "schedule":
