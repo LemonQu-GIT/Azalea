@@ -1,11 +1,27 @@
 import asyncio
-import pet.pet_api as pet_api
-import pet.windows_utils
+import time
+import json
+import functools
+import traceback
+import pyautogui
+from datetime import datetime
+from openai.types.chat import ChatCompletionMessageParam
+
 import pet.utils
-import random
+import pet.ai_utils
+import pet.memory_utils
+import pet.tool_calling
+from pet.ai_utils import Actions
 
 _active_window = None
 config = pet.utils.loadConfig()
+
+chat_sys_prompt = pet.ai_utils.chat_sys_prompt
+control_sys_prompt = pet.ai_utils.control_sys_prompt
+
+
+def _to_thread_kw(func, *args, **kwargs):
+    return asyncio.to_thread(functools.partial(func, *args, **kwargs))
 
 
 def register_active_window(window):
@@ -18,215 +34,251 @@ def unregister_active_window():
     _active_window = None
 
 
-class Actions:
-    def __init__(self, window):
-        self._active_window = window
+async def ai_brain_core(action: Actions | None = None):
+    if action is None:
+        action = Actions(_active_window)
 
-    def get_bounds(self) -> tuple[int, int, int, int]:
-        if self._active_window is None:
-            return (0, 0, 0, 0)
-        try:
-            rect = self._active_window.frameGeometry()
-            x1 = int(rect.x())
-            y1 = int(rect.y())
-            x2 = int(rect.x() + rect.width())
-            y2 = int(rect.y() + rect.height())
-            return (x1, y1, x2, y2)
-        except Exception:
-            return (0, 0, 0, 0)
+    fcm = await _to_thread_kw(pet.ai_utils.load_context, "control_context")
+    if fcm:
+        control_messages: list[ChatCompletionMessageParam] = fcm
+    else:
+        control_messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": control_sys_prompt}]
+        await _to_thread_kw(pet.ai_utils.save_context, control_messages, "control_context")
 
-    def get_position(self, type: str = "foot") -> tuple[int, int]:
-        if self._active_window is None:
-            return (0, 0)
+    fcm_chat = await _to_thread_kw(pet.ai_utils.load_context, "chat_context")
+    if fcm_chat:
+        chat_messages: list[ChatCompletionMessageParam] = fcm_chat
+    else:
+        chat_messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": chat_sys_prompt}]
+        await _to_thread_kw(pet.ai_utils.save_context, chat_messages, "chat_context")
+
+    last_activity_time = time.time()
+
+    manager = await asyncio.to_thread(pet.memory_utils.MemoryManager)
+
+    SLEEP_TIME = 5
+    schedule: list[dict] = []
+    schedule_run = None
+
+    consecutive_failures = 0
+
+    while True:
         try:
-            rect = self._active_window.frameGeometry()
-            x1 = int(rect.x()) + config["window"]['collision_offset']['left']
-            y1 = int(rect.y()) + config["window"]['collision_offset']['top']
-            x2 = int(rect.x() + rect.width()) - \
-                config["window"]['collision_offset']['right']
-            y2 = int(rect.y() + rect.height()) - \
-                config["window"]['collision_offset']['bottom']
-            if type == "foot":
-                return ((x1 + x2) // 2, y2)
+            print("\n--- Next Loop ---")
+            screenshot = await asyncio.to_thread(pyautogui.screenshot)
+            screenshot_base64 = pet.ai_utils.img2base64(screenshot)
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_time = time.time()
+
+            if schedule_run:
+                print(
+                    f"[Schedule Triggered] 计划触发: {schedule_run['content']} (计划时间: "
+                    f"{datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})"
+                )
+                assembled_content = (
+                    f"计划触发: {schedule_run['content']} "
+                    f"(计划时间: {datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})"
+                )
+                schedule.remove(schedule_run)
+                schedule_run = None
             else:
-                return ((x1 + x2) // 2, (y1 + y2) // 2)
-        except Exception:
-            return (0, 0)
+                assembled_content = (
+                    f"现在是 {now}，距离桌宠上一次做出行为过去了{now_time - last_activity_time:.2f}秒。"
+                    "请根据截屏判断桌宠的行为。"
+                )
 
-    async def _run_awaitable_action(
-        self,
-        command: str,
-        *,
-        timeout_seconds: float,
-        **kwargs,
-    ) -> bool:
-        if self._active_window is None:
-            return False
-        try:
-            loop = asyncio.get_running_loop()
-        except Exception:
-            self._active_window.enqueue_ai_command(command, **kwargs)
-            return True
+            control_messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": assembled_content},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/jpeg;base64,{screenshot_base64}"}},
+                ],
+            })
 
-        event = asyncio.Event()
-        try:
-            action_id = self._active_window.register_action_completion(
-                loop, event, timeout_seconds + 0.5)
-        except Exception:
-            self._active_window.enqueue_ai_command(command, **kwargs)
-            return True
+            control_reply = await _to_thread_kw(
+                pet.tool_calling.run_llm_with_tools, control_messages
+            )
+            pet.ai_utils.remove_image(control_messages)
+            control_messages = pet.ai_utils.truncate_context(
+                control_messages, sys_prompt=control_sys_prompt, max_recent=15
+            )
 
-        kwargs = dict(kwargs)
-        kwargs["_action_id"] = int(action_id)
-        self._active_window.enqueue_ai_command(command, **kwargs)
+            if control_reply:
+                last_activity_time = time.time()
+                control_reply_json = pet.ai_utils.format_response(
+                    control_reply)
 
-        try:
-            await asyncio.wait_for(event.wait(), timeout=timeout_seconds)
-            return True
-        except asyncio.TimeoutError:
-            return False
+                if control_reply_json and isinstance(control_reply_json, list):
+                    for task in control_reply_json:
+                        print(f"Task executed: {task}")
 
-    async def _climb_window(self, hwnd: int, timeout_seconds: float = 10.0) -> bool:
-        return await self._run_awaitable_action(
-            "climb_window",
-            timeout_seconds=timeout_seconds,
-            hwnd=int(hwnd),
-        )
+                        if task.get("action") == "chat":
+                            reason = task.get("reason", "")
 
-    async def _jump_on_window(self, hwnd: int, timeout_seconds: float = 6.0) -> bool:
-        return await self._run_awaitable_action(
-            "jump_on_window",
-            timeout_seconds=timeout_seconds,
-            hwnd=int(hwnd),
-        )
+                            retrieved_mems = await _to_thread_kw(
+                                manager.retrieve_for_chat, reason
+                            )
+                            if retrieved_mems:
+                                mem_text = "\n".join(
+                                    f"- {m['content']}" for m in retrieved_mems
+                                )
+                                mem_sys_prompt = {
+                                    "role": "system",
+                                    "content": f"[相关历史记忆]:\n{mem_text}",
+                                }
+                                chat_messages.append(
+                                    mem_sys_prompt)  # type:ignore
 
-    async def _jump_into_window(self, hwnd: int, timeout_seconds: float = 5.0) -> bool:
-        return await self._run_awaitable_action(
-            "jump_into_window",
-            timeout_seconds=timeout_seconds,
-            hwnd=int(hwnd),
-        )
+                            chat_ss = await asyncio.to_thread(pyautogui.screenshot)
+                            chat_prompt = {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text",
+                                     "text": f"大脑指令对话原因：{reason}"},
+                                    {"type": "image_url",
+                                     "image_url": {"url": f"data:image/jpeg;base64,{pet.ai_utils.img2base64(chat_ss)}"}},
+                                ],
+                            }
+                            chat_messages.append(chat_prompt)  # type:ignore
 
-    async def jump(self, height: int = 95, times: int = 1, timeout_seconds: float | None = None) -> bool:
-        height_i = max(1, int(height))
-        times_i = max(1, int(times))
-        if timeout_seconds is None:
-            t_per_jump = 0.9 + (height_i / 420.0)
-            timeout_seconds = max(2.5, float(times_i) * t_per_jump + 1.0)
-        return await self._run_awaitable_action(
-            "jump",
-            timeout_seconds=timeout_seconds,
-            height=height_i,
-            times=times_i,
-        )
+                            chat_reply = await _to_thread_kw(
+                                pet.tool_calling.run_llm_with_tools, chat_messages
+                            )
+                            pet.ai_utils.remove_image(chat_messages)
+                            chat_messages = pet.ai_utils.truncate_context(
+                                chat_messages, sys_prompt=chat_sys_prompt, max_recent=15
+                            )
 
-    async def _walk(self, distance: int, timeout_seconds: float | None = None) -> bool:
-        dist_i = int(distance)
-        if abs(dist_i) < 1:
-            return True
-        if timeout_seconds is None:
-            timeout_seconds = max(2.0, abs(float(dist_i)) / 260.0 + 1.0)
-        return await self._run_awaitable_action(
-            "walk",
-            timeout_seconds=timeout_seconds,
-            distance=dist_i,
-        )
+                            if chat_reply:
+                                print(f"<<< {chat_reply}")
+                                duration = max(3.0, len(chat_reply) * 0.1)
+                                await action.show_message(str(chat_reply), duration=duration)
+                                new_memories = await _to_thread_kw(
+                                    manager.generate_memories, reason, chat_reply
+                                )
+                                for mem in new_memories:
+                                    if isinstance(mem, dict) and "content" in mem:
+                                        await _to_thread_kw(
+                                            manager.add_memory,
+                                            content=mem["content"],
+                                            type=mem.get("type", "fact"),
+                                            importance=mem.get(
+                                                "importance", 5),
+                                        )
+                                        print(
+                                            f"[Memory Saved] 成功记录新的长期记忆: {mem['content']}"
+                                        )
 
-    async def _walk_to(self, x: int, timeout_seconds: float | None = None) -> bool:
-        x_i = int(x)
-        if timeout_seconds is None:
-            timeout_seconds = max(2.0, 3840.0 / 260.0 + 1.5)
-        return await self._run_awaitable_action(
-            "walk_to",
-            timeout_seconds=timeout_seconds,
-            x=x_i,
-        )
+                        elif task.get("action") == "walk":
+                            distance = task.get("distance")
+                            if distance is not None:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠行走: 距离={distance}")
+                                await action.walk(int(distance))
+                        elif task.get("action") == "walk_to":
+                            x = task.get("x")
+                            if x is not None:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠走到x坐标: x={x}")
+                                await action.walk_to(int(x))
+                        elif task.get("action") == "climb_window":
+                            hwnd = task.get("hwnd")
+                            if hwnd:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
+                                await action.climb_window(int(hwnd))
+                        elif task.get("action") == "jump_on_window":
+                            hwnd = task.get("hwnd")
+                            if hwnd:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
+                                await action.jump_on_window(int(hwnd))
+                        elif task.get("action") == "jump_into_window":
+                            hwnd = task.get("hwnd")
+                            if hwnd:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
+                                await action.jump_into_window(int(hwnd))
+                        elif task.get("action") == "jump":
+                            height = int(task.get("height", 95))
+                            times = int(task.get("times", 1))
+                            last_activity_time = now_time
+                            print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
+                            await action.jump(height=height, times=times)
+                        elif task.get("action") == "schedule":
+                            time_str = task.get("time")
+                            content = task.get("content")
+                            parse_time = pet.ai_utils.parse_time(
+                                int(now_time), time_str
+                            )
+                            if time_str and content:
+                                schedule.append(
+                                    {"time": parse_time, "content": content}
+                                )
+                                print(
+                                    f"[Schedule Added] 成功添加计划: {time_str} - {content}"
+                                )
 
-    async def climb_window(self, hwnd: int):
-        await self._climb_window(hwnd)
+            await _to_thread_kw(pet.ai_utils.save_context, control_messages, "control_context")
+            await _to_thread_kw(pet.ai_utils.save_context, chat_messages, "chat_context")
+            print("End loop")
+            consecutive_failures = 0
 
-    async def jump_on_window(self, hwnd: int):
-        position = self.get_position(type="feet")
-        win_bounds = pet.windows_utils.getWindowRect(hwnd)
-        if win_bounds[0] and win_bounds[1] and win_bounds[2] and win_bounds[3]:
-            mid_x = (win_bounds[0] + win_bounds[2]) // 2
-            if abs(position[1] - win_bounds[3]) < 10 and win_bounds[0] < position[0] < win_bounds[2]:
-                pass
-            else:
-                angle = 180 if position[0] < mid_x else 0
-                await self.set_model_transform(rotation=(0, angle, 0), rotation_degrees=True)
-                await self._jump_on_window(hwnd)
-                await self.set_model_transform(rotation=(0, 90, 0), rotation_degrees=True)
+        except Exception as exc:
+            consecutive_failures += 1
+            backoff = min(SLEEP_TIME * consecutive_failures, 60)
+            err_header = (
+                f"[AI Brain Loop] 本轮执行异常 (连续失败 {consecutive_failures} 次, "
+                f"将退避 {backoff}s 后继续): {type(exc).__name__}: {exc}"
+            )
+            print("\n" + "=" * 60)
+            print(err_header)
+            traceback.print_exc()
+            print("=" * 60 + "\n")
+            try:
+                pet.utils.log(err_header + "\n" +
+                              traceback.format_exc(), "ERROR")
+            except Exception:
+                pass  # 连日志都失败就别折腾了 （笑死了，这个是codex自己写的注释
+            await asyncio.sleep(backoff)
+            continue
 
-    async def jump_into_window(self, hwnd: int):
-        position = self.get_position(type="main")
-        win_bounds = pet.windows_utils.getWindowRect(hwnd)
-        if win_bounds[0] and win_bounds[1] and win_bounds[2] and win_bounds[3]:
-            mid_x = (win_bounds[0] + win_bounds[2]) // 2
-            if win_bounds[1] < position[1] < win_bounds[3] and win_bounds[0] < position[0] < win_bounds[2]:
-                pass
-            else:
-                angle = 180 if position[0] < mid_x else 0
-                await self.set_model_transform(rotation=(0, angle, 0), rotation_degrees=True)
-                await self._jump_into_window(hwnd)
-                await self.set_model_transform(rotation=(0, 90, 0), rotation_degrees=True)
-
-    async def walk(self, distance: int):
-        WALK_ROTATION_OFFSET = -19
-        if distance == 0:
-            return
-        if distance < 0:
-            await self.play_animation("CH0069_Cafe_Walk", loop=True)
-            await self.set_model_transform(rotation=(0, 270+WALK_ROTATION_OFFSET, 0), rotation_degrees=True)
-            await self._walk(distance)
-            await self.play_animation("CH0069_Cafe_Idle", loop=True)
-            await self.set_model_transform(rotation=(0, 90, 0), rotation_degrees=True)
-        else:
-            await self.play_animation("CH0069_Cafe_Walk", loop=True)
-            await self.set_model_transform(rotation=(0, 90+WALK_ROTATION_OFFSET, 0), rotation_degrees=True)
-            await self._walk(distance)
-            await self.play_animation("CH0069_Cafe_Idle", loop=True)
-            await self.set_model_transform(rotation=(0, 90, 0), rotation_degrees=True)
-
-    async def walk_to(self, x: int):
-        position = self.get_position(type="feet")
-        distance = x - position[0]
-        await self.walk(distance)
-
-    async def set_model_scale(self, x: float, y: float, z: float):
-        await pet_api.set_model_scale(x, y, z)
-
-    async def set_model_position(self, x: float, y: float, z: float):
-        await pet_api.set_model_position(x, y, z)
-
-    async def set_camera_position(self, x: float, y: float, z: float):
-        await pet_api.set_camera_position(x, y, z)
-
-    async def play_animation(self, name: str, loop: bool = True):
-        await pet_api.play_animation(name, loop=loop)
-
-    async def set_model_transform(
-        self,
-        scale: tuple[float, float, float] | None = None,
-        rotation: tuple[float, float, float] | None = None,
-        position: tuple[float, float, float] | None = None,
-        rotation_degrees: bool = True,
-    ):
-        await pet_api.set_model_transform(
-            scale=scale,
-            rotation=rotation,
-            position=position,
-            rotation_degrees=rotation_degrees,
-        )
+        for i in range(SLEEP_TIME):
+            now_time = time.time()
+            for task in schedule:
+                if now_time >= task["time"]:
+                    schedule_run = task
+                    break
+            await asyncio.sleep(1)
 
 
 async def ai_brain_loop():
     global _active_window
-    action = Actions(_active_window)
-    await asyncio.sleep(3)
-    await action.walk_to(1200)
-    await action.jump(times=2)
-    await asyncio.sleep(3)
+
+    crash_count = 0
     while True:
-        await action.jump_into_window(1116608)
-        await asyncio.sleep(3)
+        try:
+            action = Actions(_active_window)
+            await asyncio.sleep(3)
+            await ai_brain_core(action)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            crash_count += 1
+            backoff = min(5 * (2 ** min(crash_count, 5)), 60)
+            header = (
+                f"[AI Brain Loop FATAL] AI 大脑核心崩溃 (第 {crash_count} 次), "
+                f"{backoff}s 后重启: {type(exc).__name__}: {exc}"
+            )
+            print("\n" + "!" * 60)
+            print(header)
+            traceback.print_exc()
+            print("!" * 60 + "\n")
+            try:
+                pet.utils.log(header + "\n" + traceback.format_exc(), "FATAL")
+            except Exception:
+                pass
+            await asyncio.sleep(backoff)

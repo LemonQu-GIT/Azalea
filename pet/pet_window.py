@@ -8,10 +8,10 @@ import ctypes
 import traceback
 from typing import Callable
 
-from PyQt6.QtCore import QEvent, QPoint, QTimer, QUrl, Qt
-from PyQt6.QtGui import QColor, QCursor, QMouseEvent
+from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, QUrl, Qt, QRectF
+from PyQt6.QtGui import QBrush, QColor, QCursor, QMouseEvent, QPainter, QPen, QFont, QPainterPath, QFontMetrics
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QVBoxLayout, QWidget, QLabel
 
 from pyglet import event
 from pynput import mouse as pynput_mouse
@@ -69,6 +69,193 @@ def _send_command_threadsafe(command_dict: dict) -> None:
         _send_command_threadsafe_func(command_dict)
 
 
+class ChatBubble(QWidget):
+    PADDING_X = 16
+    PADDING_Y = 12
+    TAIL_WIDTH = 16
+    TAIL_HEIGHT = 10
+    MAX_WIDTH = 360
+    BORDER_RADIUS = 14
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self._message = ""
+        self._text_size = QSize(0, 0)
+
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self.hide_bubble)
+
+        self._update_font()
+
+    def _update_font(self):
+        candidates = [
+            "Microsoft YaHei UI",
+            "Microsoft YaHei",
+            "PingFang SC",
+            "Source Han Sans CN",
+            "SimHei",
+            "Segoe UI",
+        ]
+        chosen = ""
+        for name in candidates:
+            f = QFont(name)
+            if f.exactMatch() or name == "Segoe UI":
+                chosen = name
+                break
+        if not chosen:
+            chosen = candidates[-1]
+        self._font = QFont(chosen, 10)
+        self._font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        self.setFont(self._font)
+
+    def set_message(self, message: str, duration: float = 3.0):
+        self._message = message if message else ""
+        if not self._message:
+            self.hide_bubble()
+            return
+
+        self._calc_text_size()
+        self._resize_and_update()
+        self._cached_bubble_w, self._cached_bubble_h = self._bubble_size()
+
+        if duration > 0:
+            self._hide_timer.start(max(1, int(duration * 1000)))
+        else:
+            self._hide_timer.stop()
+        if not self.winId():
+            self.winId()
+        self.show()
+        self.raise_()
+        if sys.platform == "win32":
+            try:
+                HWND_TOPMOST = -1
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_NOACTIVATE = 0x0010
+                SWP_SHOWWINDOW = 0x0040
+                ctypes.windll.user32.SetWindowPos(
+                    int(self.winId()),
+                    HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                )
+            except Exception:
+                pass
+
+    def hide_bubble(self):
+        self._hide_timer.stop()
+        self.hide()
+        self._cached_bubble_w = 0
+        self._cached_bubble_h = 0
+
+    def update_position(self, pet_window_x: int, pet_window_y: int,
+                        pet_window_width: int, pet_window_height: int,
+                        pet_collision_top_offset: int = 0):
+        if not self._message:
+            return
+        bw = getattr(self, "_cached_bubble_w", 0)
+        bh = getattr(self, "_cached_bubble_h", 0)
+        if bw <= 0 or bh <= 0:
+            bw, bh = self._bubble_size()
+            self._cached_bubble_w, self._cached_bubble_h = bw, bh
+
+        x = pet_window_x + (pet_window_width - bw) // 2
+        y = (pet_window_y)
+        if y < 2:
+            y = pet_window_y + pet_window_height + 6
+        self.move(max(2, x), max(2, y))
+
+    def _calc_text_size(self):
+        if not self._message:
+            self._text_size = QSize(0, 0)
+            return
+        fm = QFontMetrics(self._font)
+        max_text_w = max(20, self.MAX_WIDTH - self.PADDING_X * 2)
+        text_rect = fm.boundingRect(
+            QRect(0, 0, max_text_w, 100000),
+            Qt.TextFlag.TextWordWrap
+            | Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignTop,
+            self._message,
+        )
+        self._text_size = QSize(
+            max(10, text_rect.width() + 2),
+            max(fm.height(), text_rect.height() + 2),
+        )
+
+    def _bubble_size(self) -> tuple[int, int]:
+        w = self._text_size.width() + self.PADDING_X * 2
+        h = self._text_size.height() + self.PADDING_Y * 2 + self.TAIL_HEIGHT
+        return (max(40, w), max(30, h))
+
+    def _resize_and_update(self):
+        w, h = self._bubble_size()
+        self.resize(w, h)
+        self.update()
+
+    def paintEvent(self, event):  # type: ignore
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0 or not self._message:
+            return
+
+        bubble_body_h = h - self.TAIL_HEIGHT
+        body_rect = QRectF(0, 0, w, bubble_body_h)
+        path = QPainterPath()
+        path.addRoundedRect(body_rect, self.BORDER_RADIUS, self.BORDER_RADIUS)
+
+        tail_cx = w // 2
+        tail_top_y = bubble_body_h
+        tail_bottom_y = h
+        tail_left = tail_cx - self.TAIL_WIDTH // 2
+        tail_right = tail_cx + self.TAIL_WIDTH // 2
+
+        tail_path = QPainterPath()
+        tail_path.moveTo(tail_left, tail_top_y)
+        tail_path.lineTo(tail_cx, tail_bottom_y)
+        tail_path.lineTo(tail_right, tail_top_y)
+        tail_path.closeSubpath()
+
+        bubble_path = path.united(tail_path)
+
+        bg_color = QColor(255, 255, 255, 242)
+        painter.setBrush(QBrush(bg_color))
+        border_color = QColor(220, 224, 232, 200)
+        painter.setPen(QPen(border_color, 1))
+        painter.drawPath(bubble_path)
+
+        painter.setPen(QColor(32, 33, 36, 255))
+        painter.setFont(self._font)
+        text_rect = QRect(
+            self.PADDING_X,
+            self.PADDING_Y,
+            self._text_size.width(),
+            self._text_size.height(),
+        )
+        painter.drawText(
+            text_rect,
+            Qt.TextFlag.TextWordWrap
+            | Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignTop,
+            self._message,
+        )
+
+
 class PetWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -83,6 +270,9 @@ class PetWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
         self.setFixedSize(PET_WIDTH, PET_HEIGHT)
+
+        self._collision_offset = fconfig["window"]["collision_offset"]
+        self.chat_bubble = ChatBubble()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -110,8 +300,6 @@ class PetWindow(QWidget):
                                               dict[str, int]]] = queue.Queue()
         self.ai_follow: dict[str, int | str | float] | None = None
 
-        # 行为完成同步追踪：ai_brain_loop(异步线程) <-> Qt物理更新(主线程)
-        # 每项: {action_id: {"loop": asyncio.Loop, "event": asyncio.Event, "timeout": float_deadline}}
         self._pending_actions: dict[int, dict] = {}
         self._next_action_id: int = 1
 
@@ -158,6 +346,37 @@ class PetWindow(QWidget):
         self.cleanup()
         super().closeEvent(a0)
 
+    def show_message_bubble(self, message: str, duration: float = 3.0):
+        self.enqueue_ai_command(
+            "show_message",
+            message=str(message),
+            duration=float(duration),
+        )
+
+    def _show_message_bubble_impl(self, message: str, duration: float):
+        try:
+            self.chat_bubble.set_message(message, duration=duration)
+            self.chat_bubble.update_position(
+                pet_window_x=self.x(),
+                pet_window_y=self.y(),
+                pet_window_width=self.width(),
+                pet_window_height=self.height(),
+                pet_collision_top_offset=int(self._collision_offset["top"]),
+            )
+            self.repaint()
+            if sys.platform == "win32":
+                try:
+                    ctypes.windll.user32.RedrawWindow(
+                        int(self.winId()),
+                        None,
+                        None,
+                        0x0400 | 0x0001 | 0x0080,  # RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            traceback.print_exc()
+
     def scan_desktop_windows(self):
         self.tracker.scan_desktop_windows(int(self.winId()), self.physics)
 
@@ -183,7 +402,6 @@ class PetWindow(QWidget):
         self.physics.clamp_body_inside_bounds()
         self._move_qt_window_to_body()
         self.tracker.update_temporary_topmost()
-        # 行为完成追踪：清理超时的pending action
         self._cleanup_timed_out_actions()
 
     def _move_qt_window_to_body(self):
@@ -191,8 +409,22 @@ class PetWindow(QWidget):
         x = round(gx - COLLISION_CENTER_X)
         y = round(gy - COLLISION_CENTER_Y)
 
-        if self.x() != x or self.y() != y:
+        moved = self.x() != x or self.y() != y
+        if moved:
             self.move(x, y)
+
+        if moved:
+            try:
+                self.chat_bubble.update_position(
+                    pet_window_x=x,
+                    pet_window_y=y,
+                    pet_window_width=self.width(),
+                    pet_window_height=self.height(),
+                    pet_collision_top_offset=int(
+                        self._collision_offset["top"]),
+                )
+            except Exception:
+                pass
 
     def eventFilter(self, watched, event):  # type: ignore
         if isinstance(event, QMouseEvent):
@@ -222,7 +454,6 @@ class PetWindow(QWidget):
 
         return super().eventFilter(watched, event)
 
-    # ---------- 行为完成追踪：异步线程(ai_brain)与Qt物理主循环之间同步 ----------
     def register_action_completion(
         self,
         asyncio_loop,
@@ -277,7 +508,7 @@ class PetWindow(QWidget):
         self.ai_follow["_action_id"] = None  # type:ignore
         self._signal_action_completion(int(aid))
 
-    def enqueue_ai_command(self, command: str, **kwargs: int):
+    def enqueue_ai_command(self, command: str, **kwargs):
         self.command_queue.put((command, kwargs))
 
     def _consume_ai_commands(self):
@@ -287,7 +518,6 @@ class PetWindow(QWidget):
             except queue.Empty:
                 return
 
-            # 提取完成追踪id（不参与行为参数）
             action_id = kwargs.pop("_action_id", None)
 
             if command == "jump":
@@ -311,10 +541,19 @@ class PetWindow(QWidget):
                     if action_id is not None:
                         self._signal_action_completion(int(action_id))
                 continue
+            elif command == "show_message":
+                message = str(kwargs.get("message", ""))
+                duration = float(kwargs.get("duration", 3.0))
+                try:
+                    self._show_message_bubble_impl(message, duration)
+                except Exception:
+                    traceback.print_exc()
+                if action_id is not None:
+                    self._signal_action_completion(int(action_id))
+                continue
 
             hwnd = kwargs.get("hwnd")
             if hwnd is None:
-                # 没有hwnd也没有已匹配到的其他命令 → 若有action_id需清掉，防止永久等待
                 if action_id is not None:
                     self._signal_action_completion(int(action_id))
                 continue
@@ -337,7 +576,6 @@ class PetWindow(QWidget):
                 self._signal_action_completion(int(action_id))
             return
 
-        # 若上一个ai_follow附带action_id，先触发其完成（被新的climb覆盖）
         self._signal_current_ai_follow_completion()
 
         gx, gy = self.physics.body.position
@@ -383,7 +621,6 @@ class PetWindow(QWidget):
             self.ai_follow is not None
             and self.ai_follow.get("mode") == "jump"
         ):
-            # 已在jump序列中：累加次数，并且若有新的action_id则覆盖旧的（旧的先signal完成）
             self._signal_current_ai_follow_completion()
             self.ai_follow["remaining"] = int(
                 self.ai_follow.get("remaining", 0)) + times
@@ -391,7 +628,6 @@ class PetWindow(QWidget):
                 self.ai_follow["_action_id"] = int(action_id)
             return
 
-        # 覆盖其他ai_follow模式（带action_id的要先signal）
         self._signal_current_ai_follow_completion()
 
         v_up = -(2.0 * GRAVITY * float(height)) ** 0.5 * 1.08
@@ -419,9 +655,6 @@ class PetWindow(QWidget):
             if action_id is not None:
                 self.ai_follow["_action_id"] = int(action_id)
         elif action_id is not None:
-            # 只跳1次而且已经在地面立刻起跳，但remaining会是0（times=1 times+1=2 near_floor remaining=1? 让我再检查：
-            # times = max(1,1)+1 = 2. near_floor: remaining = 2-1 = 1 >0 → 进入上面分支
-            # 所以这个分支基本不会触发。保留以防万一。
             self._signal_action_completion(int(action_id))
 
     def _walk(self, distance: int, action_id: int | None = None):
@@ -435,7 +668,6 @@ class PetWindow(QWidget):
             self.ai_follow is not None
             and self.ai_follow.get("mode") == "walk"
         ):
-            # 已在walk模式：先signal旧的action_id，合并新的
             self._signal_current_ai_follow_completion()
             current_remaining = float(self.ai_follow.get("remaining", 0.0))
             new_remaining = current_remaining + float(distance)
@@ -452,7 +684,6 @@ class PetWindow(QWidget):
                     self.ai_follow["_action_id"] = int(action_id)
             return
 
-        # 覆盖其他ai_follow模式
         self._signal_current_ai_follow_completion()
 
         self.tracker.activate_temporary_topmost()
@@ -921,7 +1152,6 @@ class PetWindow(QWidget):
         _request_hit_test(local_pos.x(), local_pos.y())
 
     def set_click_through(self, enabled: bool):
-        """动态设置窗口鼠标穿透 (仅限 Windows)"""
         if sys.platform != "win32":
             return
 
@@ -1045,6 +1275,13 @@ class PetWindow(QWidget):
             return
 
         self._cleanup_done = True
+
+        # 清理对话气泡窗口
+        try:
+            self.chat_bubble.hide_bubble()
+            self.chat_bubble.close()
+        except Exception:
+            pass
 
         if self._pynput_listener is not None:
             try:

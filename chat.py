@@ -68,7 +68,7 @@ while True:
     control_reply = pet.tool_calling.run_llm_with_tools(control_messages)
     pet.ai_utils.remove_image(control_messages)
     control_messages = pet.ai_utils.truncate_context(
-        control_messages, sys_prompt=control_sys_prompt, max_recent=10)
+        control_messages, sys_prompt=control_sys_prompt, max_recent=15)
 
     if control_reply:
         last_activity_time = time.time()
@@ -106,7 +106,7 @@ while True:
                         chat_messages)
 
                     chat_messages = pet.ai_utils.truncate_context(
-                        chat_messages, sys_prompt=chat_sys_prompt, max_recent=10)
+                        chat_messages, sys_prompt=chat_sys_prompt, max_recent=15)
 
                     if chat_reply:
                         print(f"<<< {chat_reply}")

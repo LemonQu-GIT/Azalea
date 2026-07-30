@@ -119,8 +119,8 @@ class MemoryManager:
             return []
 
         query = f"""
-你是AI桌宠。
-请寻找能够帮助回答用户的问题的长期记忆。
+你是AI桌宠的长期记忆检索模块。
+请寻找能够帮助回答用户（老师）的问题的长期记忆。
 
 用户问题：
 {query}
@@ -170,10 +170,11 @@ class MemoryManager:
 
     def retrieve_for_chat(self, user_input):
         router_prompt = """你是AI桌宠的记忆检索模块。
-根据用户当前输入，判断回答时需要哪些长期用户信息。
+根据AI大脑当前输入，判断回答时需要哪些长期用户信息。
+注意：由于AI桌宠是《蔚蓝档案》中的角色，因此会把用户称作“老师”。因此“老师”实际是指用户本人。你可能需要把所有的“老师”换成“用户”。
 只输出JSON列表。
 例如：
-用户：
+AI大脑：
 帮我写一个Python程序
 输出：["用户编程经验", "用户使用的技术栈"]
 如果不需要记忆：[]
@@ -216,11 +217,9 @@ class MemoryManager:
         return [memory for score, memory in result]
 
     def generate_memories(self, userInput: str, llmInput: str | None):
-        mem_sys_prompt = """
-你是一个AI桌宠的长期记忆管理器。
-
+        mem_sys_prompt = """你是一个AI桌宠的长期记忆管理器。
 你的任务是从用户和AI的对话中提取值得长期保存的信息。
-
+注意：由于AI桌宠是《蔚蓝档案》中的角色，因此会把用户称作“老师”。因此“老师”实际是指用户本人。你可能需要把所有的“老师”换成“用户”以便长期记忆的保存。
 应该保存：
 - 用户身份信息
 - 用户长期兴趣
@@ -244,8 +243,7 @@ class MemoryManager:
  }
 ]
 
-如果没有值得保存的信息，返回[]。
-"""
+如果没有值得保存的信息，返回[]。"""
         if len(self.chat_messages) > self.llmMaxLen:
             self.chat_messages = self.chat_messages[-self.llmMaxLen:]
         if not self.chat_messages or self.chat_messages[0]["role"] != "system":
