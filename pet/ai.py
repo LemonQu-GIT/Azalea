@@ -154,7 +154,7 @@ async def ai_brain_core(action: Actions | None = None):
 
                             if chat_reply:
                                 print(f"<<< {chat_reply}")
-                                duration = max(3.0, len(chat_reply) * 0.1)
+                                duration = max(10.0, len(chat_reply) * 0.1)
                                 await action.show_message(str(chat_reply), duration=duration)
                                 new_memories = await _to_thread_kw(
                                     manager.generate_memories, reason, chat_reply
@@ -224,29 +224,20 @@ async def ai_brain_core(action: Actions | None = None):
 
             await _to_thread_kw(pet.ai_utils.save_context, control_messages, "control_context")
             await _to_thread_kw(pet.ai_utils.save_context, chat_messages, "chat_context")
-            print("End loop")
+
+            print("--- End loop ---")
             consecutive_failures = 0
 
         except Exception as exc:
             consecutive_failures += 1
             backoff = min(SLEEP_TIME * consecutive_failures, 60)
-            err_header = (
-                f"[AI Brain Loop] 本轮执行异常 (连续失败 {consecutive_failures} 次, "
-                f"将退避 {backoff}s 后继续): {type(exc).__name__}: {exc}"
-            )
-            print("\n" + "=" * 60)
-            print(err_header)
-            traceback.print_exc()
-            print("=" * 60 + "\n")
-            try:
-                pet.utils.log(err_header + "\n" +
-                              traceback.format_exc(), "ERROR")
-            except Exception:
-                pass  # 连日志都失败就别折腾了 （笑死了，这个是codex自己写的注释
+            err_header = f"[AI Brain Loop] 本轮执行异常 (连续失败 {consecutive_failures} 次, 将退避 {backoff}s 后继续): {type(exc).__name__}: {exc}"
+            pet.utils.log(err_header + "\n" + traceback.format_exc(), "ERROR")
+            # 连日志都失败就别折腾了 （笑死了，这个是codex自己写的注释
             await asyncio.sleep(backoff)
             continue
 
-        for i in range(SLEEP_TIME):
+        for _ in range(SLEEP_TIME):
             now_time = time.time()
             for task in schedule:
                 if now_time >= task["time"]:
@@ -263,22 +254,19 @@ async def ai_brain_loop():
         try:
             action = Actions(_active_window)
             await asyncio.sleep(3)
-            await ai_brain_core(action)
+            if config['llm']['enabled']:
+                await ai_brain_core(action)
+            else:
+                pet.utils.log(
+                    "[AI Brain Loop] LLM 未启用，跳过 AI 大脑核心执行", "INFO", save=False)
+                while not config['llm']['enabled']:
+                    await asyncio.sleep(60)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             crash_count += 1
             backoff = min(5 * (2 ** min(crash_count, 5)), 60)
-            header = (
-                f"[AI Brain Loop FATAL] AI 大脑核心崩溃 (第 {crash_count} 次), "
-                f"{backoff}s 后重启: {type(exc).__name__}: {exc}"
-            )
-            print("\n" + "!" * 60)
-            print(header)
-            traceback.print_exc()
-            print("!" * 60 + "\n")
-            try:
-                pet.utils.log(header + "\n" + traceback.format_exc(), "FATAL")
-            except Exception:
-                pass
+            header = f"[AI Brain Loop FATAL] AI 大脑核心崩溃 (第 {crash_count} 次), {backoff}s 后重启: {type(exc).__name__}: {exc}"
+            pet.utils.log(header + "\n" +
+                          traceback.format_exc(), "CRITICAL")
             await asyncio.sleep(backoff)

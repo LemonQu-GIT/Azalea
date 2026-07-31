@@ -12,7 +12,7 @@ def _config_path() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "config.json"))
 
 
-def loadConfig():
+def loadConfig() -> dict:
     with open(_config_path(), 'r', encoding='utf-8') as f:
         return json.load(f)
 

@@ -375,7 +375,10 @@ class PetWindow(QWidget):
                 except Exception:
                     pass
         except Exception:
-            traceback.print_exc()
+            pet.utils.log(
+                traceback.format_exc(),
+                "ERROR",
+            )
 
     def scan_desktop_windows(self):
         self.tracker.scan_desktop_windows(int(self.winId()), self.physics)
@@ -544,10 +547,7 @@ class PetWindow(QWidget):
             elif command == "show_message":
                 message = str(kwargs.get("message", ""))
                 duration = float(kwargs.get("duration", 3.0))
-                try:
-                    self._show_message_bubble_impl(message, duration)
-                except Exception:
-                    traceback.print_exc()
+                self._show_message_bubble_impl(message, duration)
                 if action_id is not None:
                     self._signal_action_completion(int(action_id))
                 continue
@@ -1258,7 +1258,8 @@ class PetWindow(QWidget):
             )
             self._pynput_listener.start()
         except Exception:
-            traceback.print_exc()
+            pet.utils.log(
+                f"Failed to start global mouse listener. {traceback.format_exc()}", "ERROR")
 
     def _on_global_mouse_click(self, x, y, button, pressed):
         if button == Button.left:

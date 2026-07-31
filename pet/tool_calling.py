@@ -133,7 +133,7 @@ tools = [
 ]
 
 
-def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 10, reasoning_effort: str = "none") -> str:
+def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 15, reasoning_effort: str = "none") -> str:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     for _ in range(max_iterations):
         response = client.chat.completions.create(
@@ -169,5 +169,5 @@ def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = 
                 "role": "tool",
                 "content": str(func_response),
             })
-    print(f"⚠️ 工具调用超过最大迭代次数 ({max_iterations})")
+    pet.utils.log(f"工具调用超过最大迭代次数 ({max_iterations})", "WARNING")
     return ""

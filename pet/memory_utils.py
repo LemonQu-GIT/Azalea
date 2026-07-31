@@ -5,16 +5,17 @@ from datetime import datetime
 
 import numpy as np
 import faiss
-from sentence_transformers import SentenceTransformer
 from openai.types.chat import ChatCompletionMessageParam
 
 import pet.ai_utils
+import pet.utils
 
 config = pet.ai_utils.config
 
 
 class MemoryManager:
     def __init__(self, path="./memory"):
+        from sentence_transformers import SentenceTransformer
         self.path = path
         self.model = SentenceTransformer(config["llm"]["embedding_model"])
 
@@ -49,7 +50,8 @@ class MemoryManager:
             self.index = faiss.read_index(self.index_file)
 
             if self.index.ntotal != len(self.id_map):
-                print("FAISS index mismatch, rebuilding...")
+                pet.utils.log(
+                    "FAISS index mismatch, rebuilding...", "INFO", save=False)
                 self.rebuild_index()
 
         elif self.memories:
@@ -195,7 +197,6 @@ AI大脑：
         if not reply:
             return []
         queries = pet.ai_utils.format_response(reply)
-        print(f"queries: {queries}")
         if not isinstance(queries, list):
             return []
         result = []

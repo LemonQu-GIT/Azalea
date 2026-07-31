@@ -32,33 +32,14 @@ ai_task: asyncio.Task | None = None
 
 
 def _on_ai_task_done(task: asyncio.Task):
-    """
-    ai_task 完成回调：
-    - 正常取消：记录 INFO
-    - 异常退出（理论上 ai_brain_loop 自己会吞掉，但这里是最后一道防线）：记录 FATAL
-    """
     try:
-        # 如果 task 抛了异常且没有被内部捕获，这里会重新抛
         task.result()
     except asyncio.CancelledError:
         msg = f"[ai_task] AI 任务已被取消 (done_callback 确认)"
         pet.utils.log(msg, "INFO", save=False)
-        print(msg)
-    except Exception as exc:  # noqa: BLE001 - 这是最后一道防线，什么都要兜住
-        header = (
-            f"[ai_task DONE_CALLBACK] AI 任务以异常结束 (未被 ai_brain_loop 捕获到): "
-            f"{type(exc).__name__}: {exc}"
-        )
-        tb = "".join(traceback.format_exception(
-            type(exc), exc, exc.__traceback__))
-        full = header + "\n" + tb
-        print("\n" + "#" * 60)
-        print(full)
-        print("#" * 60 + "\n")
-        try:
-            pet.utils.log(full, "FATAL")
-        except Exception:
-            pass
+    except Exception as exc:
+        header = f"[ai_task DONE_CALLBACK] AI 任务以异常结束 (未被 ai_brain_loop 捕获到): {type(exc).__name__}: {exc}"
+        pet.utils.log(header, "FATAL")
 
 
 @app.get("/")
@@ -136,11 +117,7 @@ async def websocket_endpoint(websocket: WebSocket):
         pet.utils.log("WebSocket Connection Closed", "INFO", save=False)
 
     except Exception:
-        traceback.print_exc()
-        try:
-            pet.utils.log("WebSocket 异常:\n" + traceback.format_exc(), "ERROR")
-        except Exception:
-            pass
+        pet.utils.log("WebSocket 异常:\n" + traceback.format_exc(), "ERROR")
 
     finally:
         if websocket in ws_manager.active_connections:

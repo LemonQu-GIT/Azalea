@@ -1,4 +1,4 @@
-from typing import Union
+import warnings
 import openai
 import json
 import base64
@@ -250,7 +250,7 @@ def format_response(resp: str) -> list | dict | None:
                 answer = eval(resp)
                 return answer
             except:
-                print("unparseable:", resp)
+                warnings.warn(f"Unparseable response: {resp}")
                 return None
 
 
@@ -355,8 +355,8 @@ def load_context(fn: str) -> list:
     except FileNotFoundError:
         return []
     except json.JSONDecodeError:
-        print(
-            f"Warning: Failed to decode JSON from {fn}.json. Returning empty context.")
+        warnings.warn(
+            f"Failed to decode JSON from {fn}.json. Returning empty context.")
         return []
 
 
