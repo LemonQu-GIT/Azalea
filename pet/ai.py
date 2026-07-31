@@ -171,43 +171,6 @@ async def ai_brain_core(action: Actions | None = None):
                                         print(
                                             f"[Memory Saved] 成功记录新的长期记忆: {mem['content']}"
                                         )
-
-                        elif task.get("action") == "walk":
-                            distance = task.get("distance")
-                            if distance is not None:
-                                last_activity_time = now_time
-                                print(f"[Action] 桌宠行走: 距离={distance}")
-                                await action.walk(int(distance))
-                        elif task.get("action") == "walk_to":
-                            x = task.get("x")
-                            if x is not None:
-                                last_activity_time = now_time
-                                print(f"[Action] 桌宠走到x坐标: x={x}")
-                                await action.walk_to(int(x))
-                        elif task.get("action") == "climb_window":
-                            hwnd = task.get("hwnd")
-                            if hwnd:
-                                last_activity_time = now_time
-                                print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
-                                await action.climb_window(int(hwnd))
-                        elif task.get("action") == "jump_on_window":
-                            hwnd = task.get("hwnd")
-                            if hwnd:
-                                last_activity_time = now_time
-                                print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
-                                await action.jump_on_window(int(hwnd))
-                        elif task.get("action") == "jump_into_window":
-                            hwnd = task.get("hwnd")
-                            if hwnd:
-                                last_activity_time = now_time
-                                print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
-                                await action.jump_into_window(int(hwnd))
-                        elif task.get("action") == "jump":
-                            height = int(task.get("height", 95))
-                            times = int(task.get("times", 1))
-                            last_activity_time = now_time
-                            print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
-                            await action.jump(height=height, times=times)
                         elif task.get("action") == "schedule":
                             time_str = task.get("time")
                             content = task.get("content")
@@ -221,6 +184,55 @@ async def ai_brain_core(action: Actions | None = None):
                                 print(
                                     f"[Schedule Added] 成功添加计划: {time_str} - {content}"
                                 )
+                        elif task.get("action") == "walk":
+                            distance = task.get("distance")
+                            sit_after = task.get("sit", False)
+                            if distance is not None:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠行走: 距离={distance}")
+                                await action.walk(int(distance), sit_after=sit_after)
+                        elif task.get("action") == "walk_to":
+                            x = task.get("x")
+                            sit_after = task.get("sit", False)
+                            if x is not None:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠走到x坐标: x={x}")
+                                await action.walk_to(int(x), sit_after=sit_after)
+                        elif task.get("action") == "climb_window":
+                            hwnd = task.get("hwnd")
+                            sit_after = task.get("sit", False)
+                            if hwnd:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
+                                await action.climb_window(int(hwnd), sit_after=sit_after)
+                        elif task.get("action") == "jump_on_window":
+                            hwnd = task.get("hwnd")
+                            sit_after = task.get("sit", False)
+                            if hwnd:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
+                                await action.jump_on_window(int(hwnd), sit_after=sit_after)
+                        elif task.get("action") == "jump_into_window":
+                            hwnd = task.get("hwnd")
+                            sit_after = task.get("sit", False)
+                            if hwnd:
+                                last_activity_time = now_time
+                                print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
+                                await action.jump_into_window(int(hwnd), sit_after=sit_after)
+                        elif task.get("action") == "jump":
+                            height = int(task.get("height", 95))
+                            times = int(task.get("times", 1))
+                            last_activity_time = now_time
+                            print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
+                            await action.jump(height=height, times=times)
+                        elif task.get("action") == "stand":
+                            last_activity_time = now_time
+                            print(f"[Action] 桌宠站立")
+                            await action.stand()
+                        elif task.get("action") == "sit":
+                            last_activity_time = now_time
+                            print(f"[Action] 桌宠坐下")
+                            await action.sit()
 
             await _to_thread_kw(pet.ai_utils.save_context, control_messages, "control_context")
             await _to_thread_kw(pet.ai_utils.save_context, chat_messages, "chat_context")

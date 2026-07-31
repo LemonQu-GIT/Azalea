@@ -23,6 +23,7 @@ config = pet.tool_calling.config
 class Actions:
     def __init__(self, window):
         self._active_window = window
+        self.if_sit = False
 
     def get_bounds(self) -> tuple[int, int, int, int]:
         if self._active_window is None:
@@ -144,10 +145,31 @@ class Actions:
             x=x_i,
         )
 
-    async def climb_window(self, hwnd: int):
-        await self._climb_window(hwnd)
+    async def sit(self):
+        if self.if_sit:
+            return
+        await self.play_animation("CH0069_my_event15_teapartytable", loop=True, fade_duration=0)
+        await self.set_model_transform(position=(1.2, -0.55, -0.5), rotation=(0, 170, 0), rotation_degrees=True)
+        self.if_sit = True
 
-    async def jump_on_window(self, hwnd: int):
+    async def stand(self):
+        if not self.if_sit:
+            return
+        await self.play_animation("CH0069_Cafe_Idle", loop=True, fade_duration=0)
+        await self.set_model_transform(position=(0.0, 0.0, 0.0), rotation=(0, 90, 0), rotation_degrees=True)
+        self.if_sit = False
+
+    async def climb_window(self, hwnd: int, sit_after: bool = False, sit_after_delay: float = 1.0):
+        if self.if_sit:
+            await self.stand()
+        await self._climb_window(hwnd)
+        if sit_after:
+            await asyncio.sleep(sit_after_delay)
+            await self.sit()
+
+    async def jump_on_window(self, hwnd: int, sit_after: bool = False, sit_after_delay: float = 1.0):
+        if self.if_sit:
+            await self.stand()
         position = self.get_position(type="feet")
         win_bounds = pet.windows_utils.getWindowRect(hwnd)
         if win_bounds[0] and win_bounds[1] and win_bounds[2] and win_bounds[3]:
@@ -159,8 +181,13 @@ class Actions:
                 await self.set_model_transform(rotation=(0, angle, 0), rotation_degrees=True)
                 await self._jump_on_window(hwnd)
                 await self.set_model_transform(rotation=(0, 90, 0), rotation_degrees=True)
+        if sit_after:
+            await asyncio.sleep(sit_after_delay)
+            await self.sit()
 
-    async def jump_into_window(self, hwnd: int):
+    async def jump_into_window(self, hwnd: int, sit_after: bool = False, sit_after_delay: float = 1.0):
+        if self.if_sit:
+            await self.stand()
         position = self.get_position(type="main")
         win_bounds = pet.windows_utils.getWindowRect(hwnd)
         if win_bounds[0] and win_bounds[1] and win_bounds[2] and win_bounds[3]:
@@ -172,8 +199,14 @@ class Actions:
                 await self.set_model_transform(rotation=(0, angle, 0), rotation_degrees=True)
                 await self._jump_into_window(hwnd)
                 await self.set_model_transform(rotation=(0, 90, 0), rotation_degrees=True)
+        if sit_after:
+            await asyncio.sleep(sit_after_delay)
+            await self.sit()
 
-    async def walk(self, distance: int):
+    async def walk(self, distance: int, sit_after: bool = False, sit_after_delay: float = 1.0):
+        if self.if_sit:
+            await self.stand()
+
         WALK_ROTATION_OFFSET = -19
         if distance == 0:
             return
@@ -189,11 +222,16 @@ class Actions:
             await self._walk(distance)
             await self.play_animation("CH0069_Cafe_Idle", loop=True)
             await self.set_model_transform(rotation=(0, 90, 0), rotation_degrees=True)
+        if sit_after:
+            await asyncio.sleep(sit_after_delay)
+            await self.sit()
 
-    async def walk_to(self, x: int):
+    async def walk_to(self, x: int, sit_after: bool = False, sit_after_delay: float = 1.0):
+        if self.if_sit:
+            await self.stand()
         position = self.get_position(type="feet")
         distance = x - position[0]
-        await self.walk(distance)
+        await self.walk(distance, sit_after=sit_after, sit_after_delay=sit_after_delay)
 
     async def set_model_scale(self, x: float, y: float, z: float):
         await pet_api.set_model_scale(x, y, z)
@@ -204,8 +242,8 @@ class Actions:
     async def set_camera_position(self, x: float, y: float, z: float):
         await pet_api.set_camera_position(x, y, z)
 
-    async def play_animation(self, name: str, loop: bool = True):
-        await pet_api.play_animation(name, loop=loop)
+    async def play_animation(self, name: str, loop: bool = True, fade_duration: float = 0.2):
+        await pet_api.play_animation(name, loop=loop, fade_duration=fade_duration)
 
     async def set_model_transform(
         self,
@@ -370,16 +408,20 @@ control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用
 我会向你提供用户电脑截屏，用户也有可能直接发送消息，你需要给出桌宠的行为。
 你或许可以通过电脑的截屏来看到桌宠，桌宠是一个粉色头发的少女。
 桌宠可以做的行为有：
-- walk: 行走，给出距离，向右为正值，向左为负值。格式为{"action": "walk", "distance": 10}
-- walk_to: 走到屏幕指定的x坐标，格式为{"action": "walk_to", "x": 960}
-  其中 x 是屏幕坐标系中的水平目标位置（以像素为单位，从屏幕左侧起算）。
+- walk: 行走，给出距离，向右为正值，向左为负值。格式为{"action": "walk", "distance": 10, "sit": false}
+  其中 distance 是像素距离，sit 是是否在走完后坐下。
+- walk_to: 走到屏幕指定的x坐标，格式为{"action": "walk_to", "x": 960, "sit": false}
+  其中 x 是屏幕坐标系中的水平目标位置（以像素为单位，从屏幕左侧起算）。sit 是是否在走完后坐下。
 - chat: 这个会调用另外一个语言模型用来生成对话内容，但是你需要给出对话的原因，格式为{"action": "chat", "reason": "xxx"}。
   注意，你**不需要**生成回复的内容，只需要给出回复的原因即可。而且如果你执行了工具，那么你最好在reason中说明你已经执行了工具。
-- climb_window: 爬到某个窗口的左/右侧，格式为{"action": "climb_window", "hwnd": 123456}
-- jump_on_window: 跳到某个窗口上，格式为{"action": "jump_on_window", "hwnd": 123456}
-- jump_into_window: 跳进某个窗口，格式为{"action": "jump_into_window", "hwnd": 123456}
+- climb_window: 爬到某个窗口的左/右侧，格式为{"action": "climb_window", "hwnd": 123456, "sit": false}
+  其中 hwnd 是窗口的句柄，sit 是是否在爬完后坐下。
+- jump_on_window: 跳到某个窗口上，格式为{"action": "jump_on_window", "hwnd": 123456, "sit": false}
+- jump_into_window: 跳进某个窗口，格式为{"action": "jump_into_window", "hwnd": 123456, "sit": false}
 - jump: 在原地跳跃，格式为{"action": "jump", "height": 95, "times": 1}
   其中 height 是跳跃的像素高度（默认95），times 是连跳次数（默认1）。
+- stand: 站立，格式为{"action": "stand"}
+- sit: 坐下，格式为{"action": "sit"}
 - schedule: 计划行为，给出计划的时间或是未来多久和行为。到达那个时间点时程序会向你发送通知，格式为{"action": "schedule", "time": "2026-07-29 14:30:00", "content": "提醒用户去上课"}
   其中"time"字段接受 "YYYY-MM-DD HH:MM:SS" 格式的字符串或是 10s、10m、10h、10d 等表示未来多久的字符串，如 "1d10h"、"2h10s" 等。
   若是行为JSON中包含此行为，请你把这个action作为第一个行为返回以保证优先级。

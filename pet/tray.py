@@ -1,3 +1,9 @@
+import os
+import socket
+import subprocess
+import sys
+import time
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
@@ -22,6 +28,36 @@ from qfluentwidgets import (
 from pet.utils import loadConfig, saveConfig
 
 
+def _find_free_tcp_port() -> int:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return int(port)
+
+
+def _send_tcp_cmd(port: int, cmd: str, timeout: float = 1.5) -> str | None:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout) as s:
+            s.sendall((cmd.strip() + "\n").encode("utf-8"))
+            s.shutdown(socket.SHUT_WR)
+            data = b""
+            try:
+                s.settimeout(timeout)
+                while True:
+                    chunk = s.recv(512)
+                    if not chunk:
+                        break
+                    data += chunk
+            except socket.timeout:
+                pass
+            if not data:
+                return ""
+            return data.decode("utf-8", errors="ignore").strip()
+    except OSError:
+        return None
+
+
 class SettingsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -40,7 +76,6 @@ class SettingsWidget(QWidget):
         llmLayout = QFormLayout(self.llmGroup)
         llmLayout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        # qfluentwidgets LineEdit does not accept initial text as argument.
         self.endpointEdit = LineEdit()
         self.endpointEdit.setText(self.config["llm"]["endpoint"])
         self.apiKeyEdit = LineEdit()
@@ -141,7 +176,7 @@ class SystemTray(QSystemTrayIcon):
         settings_action.triggered.connect(self.show_settings)
 
         quit_action = QAction("退出", self)
-        quit_action.triggered.connect(QApplication.quit)
+        quit_action.triggered.connect(self._quit_all)
 
         menu.addAction(show_action)
         menu.addAction(settings_action)
@@ -150,7 +185,62 @@ class SystemTray(QSystemTrayIcon):
 
         self.setContextMenu(menu)
         self.activated.connect(self.on_tray_activated)
-        self.settings_win = None
+
+        self._settings_process: subprocess.Popen | None = None
+        self._settings_cmd_port: int | None = None
+        self._prelaunch_settings_process()
+
+    def _prelaunch_settings_process(self):
+        self._settings_cmd_port = _find_free_tcp_port()
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))
+
+        self._settings_process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "pet.settings_app",
+                f"--port={self._settings_cmd_port}",
+            ],
+            cwd=project_root,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if self._settings_process.poll() is not None:
+                self._settings_process = None
+                break
+            if _send_tcp_cmd(self._settings_cmd_port, "PING", timeout=0.3) == "PONG":
+                break
+            time.sleep(0.05)
+
+    def _ensure_settings_alive(self) -> bool:
+        alive = (
+            self._settings_process is not None
+            and self._settings_process.poll() is None
+        )
+        port_ready = (
+            self._settings_cmd_port is not None
+            and _send_tcp_cmd(self._settings_cmd_port, "PING", timeout=0.5) == "PONG"
+        )
+        if alive and port_ready:
+            return True
+
+        if self._settings_process is not None:
+            try:
+                self._settings_process.kill()
+            except OSError:
+                pass
+            self._settings_process = None
+
+        self._prelaunch_settings_process()
+
+        if self._settings_process is None or self._settings_cmd_port is None:
+            return False
+        return (
+            _send_tcp_cmd(self._settings_cmd_port,
+                          "PING", timeout=1.0) == "PONG"
+        )
 
     def toggle_pet(self):
         if self.pet_window.isVisible():
@@ -159,12 +249,51 @@ class SystemTray(QSystemTrayIcon):
             self.pet_window.show()
 
     def show_settings(self):
-        if not self.settings_win:
-            self.settings_win = SettingsWindow()
-        self.settings_win.show()
-        self.settings_win.raise_()
-        self.settings_win.activateWindow()
+        if not self._ensure_settings_alive():
+            project_root = os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))
+            self._settings_cmd_port = _find_free_tcp_port()
+            self._settings_process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "pet.settings_app",
+                    f"--port={self._settings_cmd_port}",
+                ],
+                cwd=project_root,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return
+
+        assert self._settings_cmd_port is not None
+        _send_tcp_cmd(self._settings_cmd_port, "SHOW", timeout=1.0)
+
+    def _quit_settings(self):
+        if self._settings_cmd_port is not None:
+            _send_tcp_cmd(self._settings_cmd_port, "QUIT", timeout=0.4)
+
+        proc = self._settings_process
+        if proc is None:
+            return
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline and proc.poll() is None:
+            time.sleep(0.05)
+
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        self._settings_process = None
+
+    def _quit_all(self):
+        self._quit_settings()
+        QApplication.quit()
 
     def on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.toggle_pet()
+
+    def cleanup(self):
+        self._quit_settings()

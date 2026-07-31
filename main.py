@@ -39,6 +39,7 @@ def main():
     tray = SystemTray(pet)
     tray.show()
 
+    app.aboutToQuit.connect(tray.cleanup)
     app.aboutToQuit.connect(pet.cleanup)
 
     def request_quit(signum, frame):

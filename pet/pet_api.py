@@ -38,12 +38,13 @@ async def set_camera_position(x: float, y: float, z: float):
     )
 
 
-async def play_animation(name: str, loop: bool = True):
+async def play_animation(name: str, loop: bool = True, fade_duration: float = 0.2):
     await ws_manager.broadcast(
         {
             "command": "play_anim",
             "anim_name": name,
             "loop": loop,
+            "fade_duration": fade_duration,
         }
     )
 

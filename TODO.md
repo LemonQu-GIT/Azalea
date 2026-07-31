@@ -16,3 +16,9 @@
 07-30 thoughts
 
 - [ ] tray界面美化
+
+现在窗口打开后大小是个正方形，有点诡异，可以设置成800x600吗。然后设置界面一些设置都是被QGroupBox什么圈起来的，比较丑陋，我不希望看到圈起来的设置。然后QMessageBox.warning和QMessageBox.information请使用qfluentwidgets中的dialog，可以在./examples/dialog_flyout/dialog中查看用法。
+
+- [X] 解决高DPI问题
+- [ ] 添加chat界面（思考一下在哪里添加，设置窗口？右键桌宠显示对话框？）
+- [ ] 给桌宠添加阴影
