@@ -54,6 +54,7 @@ async def set_model_transform(
     rotation: tuple[float, float, float] | None = None,
     position: tuple[float, float, float] | None = None,
     rotation_degrees: bool = True,
+    rotation_orientation: str = "local",
 ):
     command: dict = {"command": "set_transform"}
 
@@ -64,6 +65,7 @@ async def set_model_transform(
         command["rotation"] = {"x": rotation[0],
                                "y": rotation[1], "z": rotation[2]}
         command["rotation_units"] = "degrees" if rotation_degrees else "radians"
+        command["rotation_orientation"] = rotation_orientation
 
     if position is not None:
         command["position"] = {"x": position[0],

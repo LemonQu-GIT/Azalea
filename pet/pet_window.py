@@ -1174,12 +1174,44 @@ class PetWindow(QWidget):
 
         ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
 
-    def _play_drag_anim(self, anim_name: str):
+    def play_end_drag_anim(self):
+        _send_command_threadsafe(
+            {
+                "command": "set_transform",
+                "position": {"x": 0, "y": 0, "z": 0},
+                "rotation": {"x": 0, "y": 90, "z": 0},
+                "rotation_units": "degrees",
+                "rotation_orientation": "global"
+            }
+        )
         _send_command_threadsafe(
             {
                 "command": "play_anim",
-                "anim_name": anim_name,
+                "anim_name": "CH0069_Cafe_Idle",
                 "loop": True,
+                "fade_duration": 0
+            }
+        )
+
+    def play_drag_anim(self):
+        _send_command_threadsafe(
+            {
+                "command": "play_anim",
+                "anim_name": "CH0069_Formation_Pickup",
+                "loop": True,
+                "fade_duration": 0
+            }
+        )
+        _send_command_threadsafe(
+            {
+                "command": "set_transform",
+                "position": {
+                    "x": 0.5, "y": 0.1, "z": -0.5
+                },
+                "rotation": {
+                    "x": -62.980, "y": 64.900, "z": 77.045
+                },
+                "rotation_units": "degrees",
             }
         )
 
@@ -1201,7 +1233,7 @@ class PetWindow(QWidget):
         self.grabMouse()
         self.tracker.set_drag_topmost(True)
 
-        # self._play_drag_anim("CH0069_Formation_Pickup")
+        self.play_drag_anim()
 
     def _move_physics_drag(self, x: int, y: int):
         if not self.window_drag_active or not self.physics.is_dragging:
@@ -1226,7 +1258,7 @@ class PetWindow(QWidget):
         self.window_drag_active = False
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.tracker.set_drag_topmost(False)
-        # self._play_drag_anim("CH0069_Cafe_Idle")
+        self.play_end_drag_anim()
 
     def handle_global_mouse_press(self, x, y):
         window_rect = self.frameGeometry()

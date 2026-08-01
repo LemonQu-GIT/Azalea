@@ -40,7 +40,7 @@ class PetPhysics:
             (COLLISION_WIDTH, COLLISION_HEIGHT),
         )
         self.shape.elasticity = 0.2
-        self.shape.friction = 0.75
+        self.shape.friction = 1.5
 
         self.space.add(self.body, self.shape)
 
@@ -79,7 +79,7 @@ class PetPhysics:
 
         for segment in segments:
             segment.elasticity = 0.25
-            segment.friction = 0.9
+            segment.friction = 1.5
 
         self.space.add(*segments)
         self.border_shapes.extend(segments)

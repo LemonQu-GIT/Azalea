@@ -20,5 +20,10 @@
 现在窗口打开后大小是个正方形，有点诡异，可以设置成800x600吗。然后设置界面一些设置都是被QGroupBox什么圈起来的，比较丑陋，我不希望看到圈起来的设置。然后QMessageBox.warning和QMessageBox.information请使用qfluentwidgets中的dialog，可以在./examples/dialog_flyout/dialog中查看用法。
 
 - [X] 解决高DPI问题
+- [X] 给pickup动画加回来
 - [ ] 添加chat界面（思考一下在哪里添加，设置窗口？右键桌宠显示对话框？）
 - [ ] 给桌宠添加阴影
+
+08-01 thoughts
+
+* [ ] 如果输出的action list中含chat，那么最好是chat在说话之后的同时执行其他task，因为chat会花很长时间，如果是比如先jump一下，然后思考个一分多钟再说话就很奇怪
