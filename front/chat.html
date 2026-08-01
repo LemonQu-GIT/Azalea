@@ -1,0 +1,323 @@
+<!-- chat.html - 桌宠对话框（无边框风格，只有输入区 + 向上箭头发送按钮） -->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>与桌宠对话</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "PingFang SC", "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
+        background: transparent;
+        /* 整体带一点圆角背景，模拟无边框对话框观感 */
+      }
+
+      .dialog-shell {
+        width: 100%;
+        height: 100%;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 10px 36px rgba(255, 158, 199, 0.25),
+                    0 2px 8px rgba(0, 0, 0, 0.06);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* 输入区：整个"对话框"主体，内含 textarea + 内嵌右下角圆形发送按钮 */
+      .input-panel {
+        flex: 1;
+        position: relative;
+        background: #faf9fb;
+        border: 1.5px solid #f1eef3;
+        border-radius: 16px;
+        padding: 12px 54px 12px 14px; /* 右边留出圆形按钮位置 */
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+
+      .input-panel:focus-within {
+        border-color: #ff9ec7;
+        box-shadow: 0 0 0 4px rgba(255, 158, 199, 0.12);
+        background: #fff;
+      }
+
+      #message-input {
+        width: 100%;
+        height: 100%;
+        min-height: 100%;
+        border: none;
+        outline: none;
+        resize: none;
+        background: transparent;
+        font-size: 14px;
+        line-height: 1.55;
+        color: #333;
+        font-family: inherit;
+        overflow-y: auto;
+      }
+
+      #message-input::placeholder {
+        color: #c2bfc7;
+      }
+
+      #message-input::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      #message-input::-webkit-scrollbar-thumb {
+        background: rgba(255, 158, 199, 0.3);
+        border-radius: 2px;
+      }
+
+      /* 粉色圆形发送按钮：向上箭头。内嵌在输入框右上角。 */
+      .send-btn {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+        background: linear-gradient(135deg, #ff9ec7 0%, #ff7fb0 100%);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 3px 8px rgba(255, 127, 176, 0.38);
+        transition: all 0.22s ease;
+        opacity: 0;
+        visibility: hidden;
+        transform: scale(0.8) translateY(4px);
+      }
+
+      .send-btn.visible {
+        opacity: 1;
+        visibility: visible;
+        transform: scale(1) translateY(0);
+      }
+
+      .send-btn:hover:not(:disabled) {
+        transform: scale(1.08) translateY(-1px);
+        box-shadow: 0 5px 14px rgba(255, 127, 176, 0.5);
+      }
+
+      .send-btn:active:not(:disabled) {
+        transform: scale(0.94);
+      }
+
+      .send-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: scale(0.9);
+      }
+
+      .send-btn svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      /* 发送中状态：按钮旋转小菊花 */
+      .send-btn.loading svg.arrow {
+        display: none;
+      }
+      .send-btn:not(.loading) svg.spinner {
+        display: none;
+      }
+      .spinner {
+        animation: spin 0.9s linear infinite;
+        transform-origin: center;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dialog-shell">
+      <div class="input-panel">
+        <textarea
+          id="message-input"
+          placeholder="输入你想对桌宠说的话..."
+          rows="1"
+          autocomplete="off"
+          spellcheck="false"
+        ></textarea>
+        <button class="send-btn" id="send-btn" title="发送 (Enter)">
+          <!-- 向上箭头 -->
+          <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"></line>
+            <polyline points="5 12 12 5 19 12"></polyline>
+          </svg>
+          <!-- 发送中菊花 -->
+          <svg class="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const messageInput = document.getElementById('message-input');
+      const sendBtn = document.getElementById('send-btn');
+
+      let ws = null;
+      let isSending = false;
+
+      function clearInput() {
+        // 只清空输入区内容和相关 UI，不改 isSending 发送状态
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+        // 清空后，若不在发送中则隐藏发送按钮
+        sendBtn.classList.remove('loading');
+        if (!isSending) {
+          sendBtn.classList.remove('visible');
+        }
+      }
+
+      function autoResize() {
+        messageInput.style.height = 'auto';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
+        updateSendButtonVisibility();
+      }
+
+      function updateSendButtonVisibility() {
+        const hasContent = messageInput.value.trim().length > 0;
+        if (hasContent && !isSending) {
+          sendBtn.classList.add('visible');
+        } else if (!isSending) {
+          sendBtn.classList.remove('visible');
+        }
+      }
+
+      // 通知 Qt 关闭窗口（chrome 会拦截 window.close 对非 window.open 窗口，
+      // 所以这里同时尝试 window.close + 写一个专用 WebSocket 消息 + fetch 一个关闭路由，多重保险）
+      function requestCloseWindow() {
+        try {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'close_window' }));
+          }
+        } catch (_) {}
+        try {
+          fetch('/chat_close', { method: 'POST' }).catch(() => {});
+        } catch (_) {}
+        try {
+          // 兜底：如果页面是 window.open 打开的则有效
+          window.close();
+        } catch (_) {}
+      }
+
+      function connectWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/chat_ws`;
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          messageInput.focus();
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'assistant_reply') {
+              // 收到回复就关闭对话框（按你要求：发送完消息自动关闭）
+              // 这里给一个非常短的延迟让用户看到状态
+              setTimeout(() => {
+                isSending = false;
+                sendBtn.classList.remove('loading');
+                updateSendButtonVisibility();
+                requestCloseWindow();
+              }, 120);
+            } else if (data.type === 'error') {
+              isSending = false;
+              sendBtn.classList.remove('loading');
+              updateSendButtonVisibility();
+              setTimeout(requestCloseWindow, 300);
+            } else if (data.type === 'close_window') {
+              // 服务端要求关闭
+              requestCloseWindow();
+            }
+          } catch (_) {}
+        };
+
+        ws.onclose = () => {
+          setTimeout(connectWebSocket, 1200);
+        };
+      }
+
+      // 提交消息（提交后立刻清空输入区并关闭窗口）
+      async function sendMessage() {
+        const content = messageInput.value.trim();
+        if (!content || isSending) return;
+
+        isSending = true;
+        sendBtn.classList.add('loading');
+        sendBtn.classList.add('visible');
+
+        // 按你要求：用户发送完消息后立刻清空聊天区（输入框内容、高度、按钮显隐全部复位）
+        clearInput();
+
+        let delivered = false;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({
+              type: 'user_message',
+              content: content
+            }));
+            delivered = true;
+          } catch (_) {}
+        }
+        if (!delivered) {
+          try {
+            const r = await fetch('/chat_send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: content })
+            });
+            delivered = r.ok;
+          } catch (_) {}
+        }
+
+        // 发送完消息后自动关闭窗口
+        setTimeout(() => {
+          requestCloseWindow();
+        }, 90);
+      }
+
+      messageInput.addEventListener('input', autoResize);
+
+      messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          // ESC 直接关闭，关闭前也清空一下，避免下次打开还残留
+          clearInput();
+          requestCloseWindow();
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      sendBtn.addEventListener('click', sendMessage);
+
+      // 初始化：打开时先清空，确保不会保留上一次的内容
+      clearInput();
+      autoResize();
+      connectWebSocket();
+      // 自动聚焦
+      setTimeout(() => messageInput.focus(), 30);
+    </script>
+  </body>
+</html>

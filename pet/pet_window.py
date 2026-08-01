@@ -256,6 +256,134 @@ class ChatBubble(QWidget):
         )
 
 
+CHAT_WINDOW_WIDTH = 360
+CHAT_WINDOW_HEIGHT = 160
+
+
+class ChatWindow(QWidget):
+    """桌宠对话框窗口：整个窗口用 QWebEngineView 渲染 /chat 页面，没有别的内容。
+
+    特性：
+      - 无边框（视觉风格由 chat.html 的圆角卡片提供）
+      - 始终置顶
+      - 不能被用户拖动
+      - 用定时器跟随桌宠位置，始终保持在桌宠左/右侧
+      - 用户发完消息或按 ESC 后：前端通过信号 request_close_chat 通知后端 hide()
+    """
+
+    def __init__(self, pet_window: "PetWindow"):
+        super().__init__()
+        self._pet = pet_window
+        fconfig = pet.utils.loadConfig()
+
+        # 无边框 + 工具窗 + 始终置顶
+        self.setWindowTitle("与桌宠对话")
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(CHAT_WINDOW_WIDTH, CHAT_WINDOW_HEIGHT)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.webView = QWebEngineView(self)
+        # 让 QWebEngineView 的页面也透明，露出 chat.html 的圆角卡片
+        page = self.webView.page()
+        page.setBackgroundColor(QColor(0, 0, 0, 0))  # type: ignore
+        self.webView.setStyleSheet("background: transparent;")
+        self.webView.setMouseTracking(True)
+        layout.addWidget(self.webView)
+
+        self.webView.load(
+            QUrl(
+                f"http://{fconfig['petServer']['host']}:{fconfig['petServer']['port']}/chat")
+        )
+
+        self._follow_timer = QTimer(self)
+        self._follow_timer.setInterval(1000 // 60)
+        self._follow_timer.timeout.connect(self._refresh_position)
+
+        emitter.request_close_chat.connect(self.hide)
+
+    def event(self, a0: QEvent | None):
+        if a0 is None:
+            return super().event(a0)
+        if a0.type() in (QEvent.Type.WindowBlocked,):
+            return super().event(a0)
+        return super().event(a0)
+
+    def show(self):  # type: ignore
+        # 先定位，再显示，避免瞬间出现在 (0,0)
+        self._refresh_position()
+        self._follow_timer.start()
+        super().show()
+        self.raise_()
+        self.activateWindow()
+        # 让输入框聚焦
+        try:
+            self.webView.setFocus()
+        except Exception:
+            pass
+
+    def hide(self):
+        try:
+            self._follow_timer.stop()
+        except Exception:
+            pass
+        super().hide()
+
+    def closeEvent(self, event):  # type: ignore
+        try:
+            self._follow_timer.stop()
+        except Exception:
+            pass
+        event.accept()
+
+    # ---- 始终贴桌宠左/右侧 ----
+    def _refresh_position(self):
+        try:
+            pet_rect = self._pet.frameGeometry()
+        except Exception:
+            return
+        screen = self.screen()
+        if screen is not None:
+            screen_geom = screen.availableGeometry()
+        else:
+            screen_geom = QRect(0, 0, self._pet.screen_width,
+                                self._pet.screen_height)
+
+        space_left = pet_rect.x() - screen_geom.left()
+        space_right = screen_geom.right() - (pet_rect.x() + pet_rect.width())
+
+        if space_right >= CHAT_WINDOW_WIDTH or space_right >= space_left:
+            x = pet_rect.right() - 50
+            if x + CHAT_WINDOW_WIDTH > screen_geom.right():
+                x = pet_rect.left() - CHAT_WINDOW_WIDTH + 50
+        else:
+            x = pet_rect.left() - CHAT_WINDOW_WIDTH + 50
+            if x < screen_geom.left():
+                x = pet_rect.right() - 50
+
+        # 垂直对齐：对话框顶部和桌宠顶部对齐，不越界
+        y = pet_rect.top()+pet_rect.height()//2-CHAT_WINDOW_HEIGHT//2 - 30
+        if y + CHAT_WINDOW_HEIGHT > screen_geom.bottom():
+            y = screen_geom.bottom() - CHAT_WINDOW_HEIGHT - 4
+        if y < screen_geom.top():
+            y = screen_geom.top() + 4
+
+        target = QPoint(
+            max(screen_geom.left() + 2, int(x)),
+            max(screen_geom.top() + 2, int(y)),
+        )
+        if self.pos() != target:
+            self.move(target)
+
+
 class PetWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -273,6 +401,7 @@ class PetWindow(QWidget):
 
         self._collision_offset = fconfig["window"]["collision_offset"]
         self.chat_bubble = ChatBubble()
+        self.chat_window: ChatWindow | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -308,7 +437,19 @@ class PetWindow(QWidget):
         self.last_model_hit_at = 0.0
         self.window_drag_active = False
         self._last_left_pressed = False
+        self._last_right_pressed = False
+        self._right_press_over_model = False
         self._pynput_listener = None
+
+        self._head_pat_active: bool = False
+        self._head_pat_anchor_x: int | None = None
+        self._head_pat_accum_x: int = 0
+        self._head_pat_last_sample_x: int | None = None
+        self._HEAD_PAT_THRESHOLD_X: int = 110
+        self._HEAD_PAT_COOLDOWN_MS: int = 5000
+        self._last_head_pat_at: float = 0.0
+        self._HEAD_PAT_MAX_HOLD_MS: int = 6000
+        self._head_pat_started_at: float = 0.0
 
         emitter.click_through_changed.connect(self.set_click_through)
         emitter.model_hit_tested.connect(self.handle_model_hit_tested)
@@ -321,6 +462,14 @@ class PetWindow(QWidget):
         emitter.global_mouse_press.connect(self.handle_global_mouse_press)
         emitter.global_mouse_move.connect(self.handle_global_mouse_move)
         emitter.global_mouse_release.connect(self.handle_global_mouse_release)
+
+        emitter.model_right_clicked.connect(self.handle_model_right_clicked)
+        emitter.request_open_chat.connect(self.open_chat_window)
+
+        # 摸头手势（来源是 pynput 全局右键事件，主线程 queued 到这里）
+        emitter.global_right_press.connect(self._handle_global_right_press)
+        emitter.global_right_move.connect(self._handle_global_right_move)
+        emitter.global_right_release.connect(self._handle_global_right_release)
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.scan_desktop_windows)
@@ -429,31 +578,117 @@ class PetWindow(QWidget):
             except Exception:
                 pass
 
+    def open_chat_window(self):
+        """打开或激活对话框窗口（放在桌宠左/右侧）。
+        注意：本函数会创建 QWebEngineView，只允许在 Qt 主线程调用。"""
+        try:
+            if self.chat_window is None:
+                self.chat_window = ChatWindow(self)
+            # ChatWindow.show() 内部会：定位 → 启动跟随定时器 → 显示
+            self.chat_window.show()
+        except Exception:
+            pet.utils.log(
+                f"[open_chat_window] 异常:\n{traceback.format_exc()}",
+                "ERROR",
+            )
+
+    def handle_model_right_clicked(self, screen_x: int, screen_y: int):
+        """**主线程执行的**右键点击处理器（由信号 queued 到主线程）。
+        - eventFilter 本地右键和 pynput 全局右键最终都走这里，统一防抖。
+        - 负责：范围判定 → 关闭穿透 → 打开对话框。
+        - **注意：当右键被用于摸头手势（达到摸头累计移动阈值）时，本函数不应该再打开对话框，
+          靠摸头手势触发时已经调用过 _head_pat_mark_used 来吃掉后续右键点击打开窗口。"""
+        if getattr(self, "_head_pat_suppress_click", False):
+            self._head_pat_suppress_click = False
+            return
+        # 防抖 300ms，避免 eventFilter 源 + pynput 源触发两次打开
+        now_ts = time.monotonic()
+        last_ts = getattr(self, "_last_right_click_open_at", 0.0)
+        if now_ts - last_ts < 0.3:
+            return
+        # 判定：屏幕坐标是否落在桌宠窗口范围内（宽松）
+        window_rect = self.frameGeometry()
+        pt = QPoint(int(screen_x), int(screen_y))
+        in_window = window_rect.contains(pt)
+        on_model = self._is_recently_over_model()
+        if not (in_window or on_model):
+            return
+        self._last_right_click_open_at = now_ts
+        # 如果窗口正处于穿透状态，先解除——这样后续用户点击对话框标题栏/桌宠时不会漏掉
+        if self.click_through_enabled:
+            self.set_click_through(False)
+        self.open_chat_window()
+
     def eventFilter(self, watched, event):  # type: ignore
         if isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonPress:
+                pos = event.globalPosition().toPoint()
                 if event.button() == Qt.MouseButton.LeftButton:
-                    pos = event.globalPosition().toPoint()
                     self.handle_global_mouse_press(pos.x(), pos.y())
+                    event.accept()
+                    return True
+                elif event.button() == Qt.MouseButton.RightButton:
+                    # 主线程安全的操作可以直接做：记录按下状态便于释放判定
+                    self._last_right_pressed = True
+                    self._right_press_over_model = self._is_recently_over_model()
+                    if self.click_through_enabled:
+                        self.set_click_through(False)
+                    # 摸头手势：按下开始（只有在模型上的按下才开始）
+                    self._head_pat_begin(pos.x())
                     event.accept()
                     return True
 
             elif event.type() == QEvent.Type.MouseMove:
+                pos = event.globalPosition().toPoint()
                 if self.window_drag_active:
-                    pos = event.globalPosition().toPoint()
                     self.handle_global_mouse_move(pos.x(), pos.y())
                     event.accept()
                     return True
+                # 摸头手势：按住右键时的水平移动累计
+                self._head_pat_update(pos.x())
 
             elif event.type() == QEvent.Type.MouseButtonRelease:
+                pos = event.globalPosition().toPoint()
                 if (
                     event.button() == Qt.MouseButton.LeftButton
                     and self.window_drag_active
                 ):
-                    pos = event.globalPosition().toPoint()
                     self.handle_global_mouse_release(pos.x(), pos.y())
                     event.accept()
                     return True
+                elif event.button() == Qt.MouseButton.RightButton:
+                    # 如果这次按住右键过程中触发过摸头，就不要再打开对话框（否则一松开就弹对话框，体验差）
+                    triggered_pat = False
+                    if self._head_pat_active:
+                        cooldown_s = self._HEAD_PAT_COOLDOWN_MS / 1000.0
+                        # 触发判断：要么触发时刻就在最近 2*cool 内，要么累计量超过阈值（松开前恰好到）
+                        if time.monotonic() - self._last_head_pat_at < cooldown_s * 2:
+                            triggered_pat = True
+                        elif self._head_pat_accum_x >= self._HEAD_PAT_THRESHOLD_X:
+                            triggered_pat = True
+                    self._head_pat_reset()
+
+                    # Qt 本地事件的右键释放：通过信号走统一的主线程 handler（含防抖）
+                    was_over = self._last_right_pressed and self._right_press_over_model
+                    still_over = self._is_recently_over_model()
+                    self._last_right_pressed = False
+                    self._right_press_over_model = False
+
+                    if triggered_pat:
+                        # 吃掉本次右键点击打开对话框的动作（置位，让 handler 里跳过）
+                        self._head_pat_suppress_click = True
+                    else:
+                        self._head_pat_suppress_click = False
+
+                    if was_over or still_over:
+                        emitter.model_right_clicked.emit(pos.x(), pos.y())
+                    event.accept()
+                    return True
+
+            elif event.type() == QEvent.Type.ContextMenu:
+                # 阻止系统右键菜单
+                event.accept()
+                return True
 
         return super().eventFilter(watched, event)
 
@@ -1130,6 +1365,108 @@ class PetWindow(QWidget):
             and time.monotonic() - self.last_model_hit_at < 0.25
         )
 
+    # ==================================================================
+    # 摸头手势检测
+    # 触发条件：
+    #   1. 鼠标右键按下时指针在模型命中区域（_is_recently_over_model 真）
+    #   2. 按住不松的同时，指针在水平方向上左右来回累计移动绝对值
+    #      >= _HEAD_PAT_THRESHOLD_X（约摸一次头的左右幅度）
+    #   3. 两次触发间隔 >= _HEAD_PAT_COOLDOWN_MS 冷却时间
+    #   4. 按住的总时长不超过 _HEAD_PAT_MAX_HOLD_MS（超过则重置手势）
+    # 触发后 emit emitter.pet_head_patted()，随后由 server.py 转成
+    # head_pat_queue 事件，再由 ai_brain_core 拼 assembled_content。
+    # 摸头期间：把鼠标样式设置为"手"形，松开/超时/重置时恢复正常。
+    # ==================================================================
+    def _head_pat_begin(self, screen_x: int):
+        if self._head_pat_active:
+            return
+        if not self._is_recently_over_model():
+            return
+        now = time.monotonic()
+        # 先把冷却的判断去掉：这里是"开始"，冷却只在"触发了一次摸头"之后判断
+        self._head_pat_active = True
+        self._head_pat_anchor_x = int(screen_x)
+        self._head_pat_last_sample_x = int(screen_x)
+        self._head_pat_accum_x = 0
+        self._head_pat_started_at = now
+        # —— 设置鼠标样式：摸头时变成"手"形（PointerHand，指的是点击/拖拽那种手指张开指向前的手）
+        # 使用 QApplication.setOverrideCursor，保证在本进程所有窗口（主要是桌宠窗口）生效
+        try:
+            from PyQt6.QtWidgets import QApplication
+            QApplication.setOverrideCursor(
+                QCursor(Qt.CursorShape.PointingHandCursor))
+        except Exception:
+            pass
+
+    def _head_pat_update(self, screen_x: int):
+        if not self._head_pat_active:
+            return
+        x = int(screen_x)
+        last = self._head_pat_last_sample_x
+        if last is None:
+            self._head_pat_last_sample_x = x
+            return
+        dx = abs(x - last)
+        self._head_pat_accum_x += dx
+        self._head_pat_last_sample_x = x
+        now = time.monotonic()
+
+        # 按住太久也不让它一直触发：重置手势
+        hold_ms = (now - self._head_pat_started_at) * 1000.0
+        if hold_ms > self._HEAD_PAT_MAX_HOLD_MS:
+            self._head_pat_reset()
+            return
+
+        if self._head_pat_accum_x >= self._HEAD_PAT_THRESHOLD_X:
+            cooldown_s = self._HEAD_PAT_COOLDOWN_MS / 1000.0
+            if now - self._last_head_pat_at >= cooldown_s:
+                self._last_head_pat_at = now
+                emitter.pet_head_patted.emit()
+            self._head_pat_accum_x = 0
+            self._head_pat_last_sample_x = x
+
+    def _head_pat_reset(self):
+        was_active = bool(self._head_pat_active)
+        self._head_pat_active = False
+        self._head_pat_anchor_x = None
+        self._head_pat_last_sample_x = None
+        self._head_pat_accum_x = 0
+        self._head_pat_started_at = 0.0
+        if was_active:
+            try:
+                from PyQt6.QtWidgets import QApplication
+                QApplication.restoreOverrideCursor()
+            except Exception:
+                pass
+
+    def _handle_global_right_press(self, x: int, y: int):
+        try:
+            self._head_pat_begin(int(x))
+        except Exception:
+            pass
+
+    def _handle_global_right_move(self, x: int, y: int):
+        try:
+            self._head_pat_update(int(x))
+        except Exception:
+            pass
+
+    def _handle_global_right_release(self, x: int, y: int):
+        triggered_pat = False
+        try:
+            if self._head_pat_active:
+                cooldown_s = self._HEAD_PAT_COOLDOWN_MS / 1000.0
+                if (time.monotonic() - self._last_head_pat_at
+                        < cooldown_s * 2) or self._head_pat_accum_x >= self._HEAD_PAT_THRESHOLD_X:
+                    triggered_pat = True
+                self._head_pat_reset()
+            if triggered_pat:
+                self._head_pat_suppress_click = True
+            else:
+                pass
+        except Exception:
+            pass
+
     def sync_click_through_state(self):
         if sys.platform != "win32":
             return
@@ -1299,15 +1636,63 @@ class PetWindow(QWidget):
                 emitter.global_mouse_press.emit(int(x), int(y))
             else:
                 emitter.global_mouse_release.emit(int(x), int(y))
+        elif button == Button.right:
+            # ⚠️ pynput 回调运行在独立线程，绝对不能调用 self.frameGeometry /
+            # self.set_click_through / self.open_chat_window / QWebEngineView 等
+            # 任何 Qt GUI/WebEngine 对象的方法。只能 emit 信号，由主线程 handler 处理。
+            if pressed:
+                # 全局右键按下：信号给主线程用于摸头手势 begin
+                try:
+                    emitter.global_right_press.emit(int(x), int(y))
+                except Exception:
+                    pass
+            else:
+                # 全局右键释放：摸头手势 reset；同时保留 model_right_clicked 给打开对话框
+                try:
+                    emitter.global_right_release.emit(int(x), int(y))
+                except Exception:
+                    pass
+                emitter.model_right_clicked.emit(int(x), int(y))
 
     def _on_global_mouse_move(self, x, y):
         emitter.global_mouse_move.emit(int(x), int(y))
+        # 全局鼠标移动：若正在摸头手势状态中，也触发 update（穿透态下 Qt 自己拿不到 move）
+        try:
+            emitter.global_right_move.emit(int(x), int(y))
+        except Exception:
+            pass
 
     def cleanup(self):
         if getattr(self, "_cleanup_done", False):
             return
 
         self._cleanup_done = True
+
+        # 兜底：如果清理时还处于摸头态，强制重置（也会恢复鼠标样式）
+        try:
+            if getattr(self, "_head_pat_active", False):
+                self._head_pat_reset()
+        except Exception:
+            pass
+        # 再兜底一次：摸头 reset 失败了就手动清掉 override cursor，确保不会卡手形
+        try:
+            from PyQt6.QtWidgets import QApplication
+            # 把所有 override cursor 清空到默认（最多清 16 层防嵌套残余）
+            for _ in range(16):
+                if QApplication.overrideCursor() is None:
+                    break
+                QApplication.restoreOverrideCursor()
+        except Exception:
+            pass
+
+        # 清理对话框窗口
+        try:
+            if self.chat_window is not None:
+                self.chat_window.hide()
+                self.chat_window.close()
+                self.chat_window = None
+        except Exception:
+            pass
 
         # 清理对话气泡窗口
         try:

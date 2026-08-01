@@ -34,6 +34,31 @@ def unregister_active_window():
     _active_window = None
 
 
+def _get_user_message_nowait() -> str | None:
+    try:
+        import pet.server as _srv
+        return _srv.user_message_queue.get_nowait()
+    except Exception:
+        return None
+
+
+def _get_head_pat_nowait() -> bool:
+    try:
+        import pet.server as _srv
+        _srv.head_pat_queue.get_nowait()
+        return True
+    except Exception:
+        return False
+
+
+async def _push_ai_reply(reply: str):
+    try:
+        import pet.server as _srv
+        _srv.ai_reply_queue.put_nowait(str(reply))
+    except Exception:
+        pass
+
+
 async def ai_brain_core(action: Actions | None = None):
     if action is None:
         action = Actions(_active_window)
@@ -58,36 +83,61 @@ async def ai_brain_core(action: Actions | None = None):
 
     manager = await asyncio.to_thread(pet.memory_utils.MemoryManager)
 
-    SLEEP_TIME = 5
+    SLEEP_TIME = 10
     schedule: list[dict] = []
     schedule_run = None
 
     consecutive_failures = 0
+    pending_user_msg: str | None = None
+    pending_head_pat: bool = False
 
     while True:
+        this_round_user_msg: str | None = pending_user_msg
+        pending_user_msg = None
+        this_round_head_pat: bool = bool(pending_head_pat)
+        pending_head_pat = False
+
+        if this_round_user_msg is None:
+            this_round_user_msg = _get_user_message_nowait()
+        if not this_round_head_pat:
+            this_round_head_pat = _get_head_pat_nowait()
+
+        user_triggered = this_round_user_msg is not None
+        head_pat_triggered = bool(this_round_head_pat)
+
         try:
-            print("\n--- Next Loop ---")
-            screenshot = await asyncio.to_thread(pyautogui.screenshot)
-            screenshot_base64 = pet.ai_utils.img2base64(screenshot)
+            print("\n--- Next Loop ---" +
+                  (" [USER MESSAGE TRIGGERED]" if user_triggered else "") +
+                  (" [HEAD PAT TRIGGERED]" if head_pat_triggered else ""))
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             now_time = time.time()
 
-            if schedule_run:
+            screenshot = await asyncio.to_thread(pyautogui.screenshot)
+            screenshot_base64 = pet.ai_utils.img2base64(screenshot)
+
+            # ========= 优先级：用户聊天 > 摸头 > 计划触发 > 常规 idle =========
+            # 全部统一进入 control_reply 大脑决策，不再绕过大脑
+            if user_triggered and this_round_user_msg:
+                user_text = this_round_user_msg
+                print(f"[User Chat] {user_text}")
+                assembled_content = f"现在是 {now}。用户主动对桌宠发消息，消息内容为：\n'''{user_text}'''\n请根据截屏判断桌宠的行为。"
+                schedule_run = None
+
+            elif head_pat_triggered:
+                # 用户摸了摸桌宠的头：assembled_content 按要求写死
+                print(f"[Head Pat] 用户摸了摸桌宠的头。")
+                assembled_content = f"现在是 {now}。用户摸了摸桌宠的头。请根据截屏判断桌宠的行为。"
+
+            elif schedule_run:
                 print(
                     f"[Schedule Triggered] 计划触发: {schedule_run['content']} (计划时间: "
                     f"{datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})"
                 )
-                assembled_content = (
-                    f"计划触发: {schedule_run['content']} "
-                    f"(计划时间: {datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})"
-                )
+                assembled_content = f"计划触发: {schedule_run['content']} (计划时间: {datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})"
                 schedule.remove(schedule_run)
                 schedule_run = None
             else:
-                assembled_content = (
-                    f"现在是 {now}，距离桌宠上一次做出行为过去了{now_time - last_activity_time:.2f}秒。"
-                    "请根据截屏判断桌宠的行为。"
-                )
+                assembled_content = f"现在是 {now}，距离桌宠上一次做出行为过去了{now_time - last_activity_time:.2f}秒。请根据截屏判断桌宠的行为。"
 
             control_messages.append({
                 "role": "user",
@@ -98,9 +148,9 @@ async def ai_brain_core(action: Actions | None = None):
                 ],
             })
 
-            control_reply = await _to_thread_kw(
+            control_reply = str(await _to_thread_kw(
                 pet.tool_calling.run_llm_with_tools, control_messages
-            )
+            ))
             pet.ai_utils.remove_image(control_messages)
             control_messages = pet.ai_utils.truncate_context(
                 control_messages, sys_prompt=control_sys_prompt, max_recent=15
@@ -123,8 +173,7 @@ async def ai_brain_core(action: Actions | None = None):
                             )
                             if retrieved_mems:
                                 mem_text = "\n".join(
-                                    f"- {m['content']}" for m in retrieved_mems
-                                )
+                                    f"- {m.get('content', '')}" for m in retrieved_mems)
                                 mem_sys_prompt = {
                                     "role": "system",
                                     "content": f"[相关历史记忆]:\n{mem_text}",
@@ -133,16 +182,23 @@ async def ai_brain_core(action: Actions | None = None):
                                     mem_sys_prompt)  # type:ignore
 
                             chat_ss = await asyncio.to_thread(pyautogui.screenshot)
+                            if user_triggered and this_round_user_msg:
+                                chat_user_prompt_text = f"现在是:{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。用户主动给你发了消息：\n'''{this_round_user_msg}'''\n大脑给出的对话原因：{reason}"
+                            elif head_pat_triggered:
+                                chat_user_prompt_text = f"现在是:{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。用户摸了摸你的头。大脑给出的对话原因：{reason}"
+                            else:
+                                chat_user_prompt_text = f"现在是:{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。大脑指令对话原因：{reason}"
+
                             chat_prompt = {
                                 "role": "user",
                                 "content": [
-                                    {"type": "text",
-                                     "text": f"大脑指令对话原因：{reason}"},
+                                    {"type": "text", "text": chat_user_prompt_text},
                                     {"type": "image_url",
                                      "image_url": {"url": f"data:image/jpeg;base64,{pet.ai_utils.img2base64(chat_ss)}"}},
                                 ],
                             }
-                            chat_messages.append(chat_prompt)  # type:ignore
+                            chat_messages.append(
+                                chat_prompt)  # type:ignore
 
                             chat_reply = await _to_thread_kw(
                                 pet.tool_calling.run_llm_with_tools, chat_messages
@@ -154,22 +210,31 @@ async def ai_brain_core(action: Actions | None = None):
 
                             if chat_reply:
                                 print(f"<<< {chat_reply}")
-                                duration = max(10.0, len(chat_reply) * 0.1)
-                                await action.show_message(str(chat_reply), duration=duration)
+                                reply_text = str(chat_reply)
+                                duration = max(10.0, len(reply_text) * 0.1)
+                                await action.show_message(reply_text, duration=duration)
+                                await _push_ai_reply(reply_text)
+                                if user_triggered and this_round_user_msg:
+                                    mem_for = this_round_user_msg
+                                else:
+                                    mem_for = reason
                                 new_memories = await _to_thread_kw(
-                                    manager.generate_memories, reason, chat_reply
+                                    manager.generate_memories, mem_for, chat_reply
                                 )
                                 for mem in new_memories:
-                                    if isinstance(mem, dict) and "content" in mem:
+                                    if isinstance(mem, dict):
+                                        mem_content = mem.get("content")
+                                        if mem_content is None:
+                                            continue
                                         await _to_thread_kw(
                                             manager.add_memory,
-                                            content=mem["content"],
+                                            content=mem_content,
                                             type=mem.get("type", "fact"),
                                             importance=mem.get(
                                                 "importance", 5),
                                         )
                                         print(
-                                            f"[Memory Saved] 成功记录新的长期记忆: {mem['content']}"
+                                            f"[Memory Saved] 成功记录新的长期记忆: {mem_content}"
                                         )
                         elif task.get("action") == "schedule":
                             time_str = task.get("time")
@@ -223,7 +288,8 @@ async def ai_brain_core(action: Actions | None = None):
                             height = int(task.get("height", 95))
                             times = int(task.get("times", 1))
                             last_activity_time = now_time
-                            print(f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
+                            print(
+                                f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
                             await action.jump(height=height, times=times)
                         elif task.get("action") == "stand":
                             last_activity_time = now_time
@@ -240,22 +306,56 @@ async def ai_brain_core(action: Actions | None = None):
             print("--- End loop ---")
             consecutive_failures = 0
 
+            # 轮次结束：用户消息 / 摸头 有任何一个挂起，都直接下一轮（不 sleep）
+            pending_user_msg = _get_user_message_nowait()
+            pending_head_pat = _get_head_pat_nowait()
+            if pending_user_msg is not None or pending_head_pat:
+                continue
+
         except Exception as exc:
             consecutive_failures += 1
             backoff = min(SLEEP_TIME * consecutive_failures, 60)
             err_header = f"[AI Brain Loop] 本轮执行异常 (连续失败 {consecutive_failures} 次, 将退避 {backoff}s 后继续): {type(exc).__name__}: {exc}"
             pet.utils.log(err_header + "\n" + traceback.format_exc(), "ERROR")
-            # 连日志都失败就别折腾了 （笑死了，这个是codex自己写的注释
+            # 异常情况下也尝试取一下用户消息或摸头事件，如果有则不要 sleep 太久
+            pending_user_msg = _get_user_message_nowait()
+            pending_head_pat = _get_head_pat_nowait()
+            if pending_user_msg is not None or pending_head_pat:
+                # 有挂起事件：不做退避，立刻下一轮
+                continue
             await asyncio.sleep(backoff)
             continue
 
+        # ========= sleep 阶段：每次 1 秒，检查 schedule、用户消息、摸头 =========
+        sleep_broken_by_user = False
         for _ in range(SLEEP_TIME):
             now_time = time.time()
             for task in schedule:
                 if now_time >= task["time"]:
                     schedule_run = task
                     break
+            # 用户在 sleep 阶段发消息 → 立刻 break
+            pending_user_msg = _get_user_message_nowait()
+            if pending_user_msg is not None:
+                sleep_broken_by_user = True
+                break
+            # 用户在 sleep 阶段摸头 → 立刻 break
+            if _get_head_pat_nowait():
+                pending_head_pat = True
+                sleep_broken_by_user = True
+                break
             await asyncio.sleep(1)
+
+        if sleep_broken_by_user:
+            # continue 到 while True 顶部，pending 会在本轮开始被处理
+            continue
+        # 正常 sleep 结束：也先检查一下有没有新事件再下一轮，
+        # 如果有则直接用（这样避免多等 1 秒）
+        if pending_user_msg is None:
+            pending_user_msg = _get_user_message_nowait()
+        if not pending_head_pat:
+            pending_head_pat = _get_head_pat_nowait()
+        # 如果有 pending，下次 while 循环开始会直接用，不再需要额外操作
 
 
 async def ai_brain_loop():
