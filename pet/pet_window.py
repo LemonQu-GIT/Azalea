@@ -40,7 +40,6 @@ from pet.ai import register_active_window
 from pet.webview import PetWebView
 from pet.window_tracker import WindowTracker
 from pet.utils import loadConfig
-import os
 
 # os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
 # ctypes.windll.user32.SetProcessDPIAware()
@@ -542,7 +541,10 @@ class PetWindow(QWidget):
         self.physics.step(STEP_SECONDS)
 
         if not self.physics.is_dragging:
-            self.tracker.refresh_container_from_position(self.physics)
+            self.tracker.refresh_container_from_position(
+                self.physics,
+                previous_bottom=self.previous_bottom,
+            )
             self.tracker.handle_window_top_landing(
                 self.physics,
                 self.previous_bottom,
@@ -550,6 +552,8 @@ class PetWindow(QWidget):
             self.tracker.follow_active_platform(self.physics)
         elif self.tracker.active_container_hwnd is not None:
             self.tracker.reset_to_fullscreen(self.physics)
+
+        self.tracker.update_window_bounce(self.physics)
 
         self.physics.clamp_body_inside_bounds()
         self._move_qt_window_to_body()

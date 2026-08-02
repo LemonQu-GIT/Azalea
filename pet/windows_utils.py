@@ -59,7 +59,8 @@ def isWindowVisible(hwnd: int) -> bool:
 
 
 def getWindowRect(hwnd: int) -> tuple[int | None, int | None, int | None, int | None]:
-    rect = wintypes.RECT()
+    return getWindowLogicalRect(hwnd)
+    '''rect = wintypes.RECT()
 
     ctypes.windll.dwmapi.DwmGetWindowAttribute(
         hwnd,
@@ -73,7 +74,16 @@ def getWindowRect(hwnd: int) -> tuple[int | None, int | None, int | None, int | 
         rect.top,
         rect.right,
         rect.bottom
-    )
+    )'''
+
+
+def getWindowLogicalRect(hwnd: int) -> tuple[int | None, int | None, int | None, int | None]:
+    rect = wintypes.RECT()
+    ok = ctypes.windll.user32.GetWindowRect(
+        ctypes.wintypes.HWND(hwnd), ctypes.byref(rect))
+    if not ok:
+        return (None, None, None, None)
+    return (rect.left, rect.top, rect.right, rect.bottom)
 
 
 def getWindowsInZOrder() -> list[int]:
@@ -118,16 +128,18 @@ def getAllWindowsRects() -> list[tuple[str, int, int, int, int, int]]:
 
 
 def transformWindow(hwnd: int, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None):
-    winrect = getWindowRect(hwnd)
-    if winrect[0] is not None and winrect[1] is not None and winrect[2] is not None and winrect[3] is not None:
+    rect = wintypes.RECT()
+    ok = ctypes.windll.user32.GetWindowRect(
+        ctypes.wintypes.HWND(hwnd), ctypes.byref(rect))
+    if ok:
         if x is None:
-            x = winrect[0]
+            x = rect.left
         if y is None:
-            y = winrect[1]
+            y = rect.top
         if width is None:
-            width = winrect[2] - winrect[0]
+            width = rect.right - rect.left
         if height is None:
-            height = winrect[3] - winrect[1]
+            height = rect.bottom - rect.top
         win32gui.MoveWindow(hwnd, x, y, width, height, True)
         return
     raise ValueError("Failed to get window rect for hwnd: {}".format(hwnd))

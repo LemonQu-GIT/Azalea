@@ -10,7 +10,8 @@ import ctypes
 
 from pet.constants import WINDOW_TITLE
 import pet.windows_utils
-from pet.physics import PetPhysics, COLLISION_WIDTH, COLLISION_HEIGHT
+from pet.constants import STEP_SECONDS
+from pet.physics import PetPhysics, WindowBouncePhysics, COLLISION_WIDTH, COLLISION_HEIGHT
 
 
 ctypes.windll.user32.SetProcessDPIAware()
@@ -65,6 +66,50 @@ class WindowTracker:
         self.is_temporarily_topmost = False
         self.is_drag_topmost = False
 
+        self.window_bounce: WindowBouncePhysics | None = None
+        self.window_bounce_pending_hwnd: int | None = None
+        self.window_bounce_pending_impact_speed: float = 0.0
+
+    def _log(self, message: str) -> None:
+        return
+
+    def _trace(self, message: str) -> None:
+        return
+
+    def _arm_window_bounce_pending(self, hwnd: int, impact_speed: float) -> None:
+        self.window_bounce_pending_hwnd = int(hwnd)
+        self.window_bounce_pending_impact_speed = max(
+            self.window_bounce_pending_impact_speed,
+            float(impact_speed),
+        )
+        self._log(
+            f"window bounce pending hwnd={hwnd} impact_speed={self.window_bounce_pending_impact_speed:.1f}"
+        )
+
+    def _maybe_start_window_bounce_pending(self, physics: PetPhysics) -> None:
+        if self.window_bounce is not None:
+            return
+
+        pending_hwnd = self.window_bounce_pending_hwnd
+        if pending_hwnd is None:
+            return
+
+        if self.active_container_hwnd != pending_hwnd and self.active_platform_hwnd != pending_hwnd:
+            return
+
+        vy = abs(float(physics.body.velocity.y))
+        vx = abs(float(physics.body.velocity.x))
+        if vy > 18.0 or vx > 260.0:
+            return
+
+        impact_speed = self.window_bounce_pending_impact_speed
+        self.window_bounce_pending_hwnd = None
+        self.window_bounce_pending_impact_speed = 0.0
+        self._log(
+            f"window bounce start confirmed hwnd={pending_hwnd} impact_speed={impact_speed:.1f} vx={vx:.1f} vy={vy:.1f}"
+        )
+        self.start_window_bounce(pending_hwnd, impact_speed=impact_speed)
+
     def suppress_auto_container(self, duration_seconds: float) -> None:
         """在一段时间内禁止refresh_container_from_position自动检测容器。
 
@@ -85,6 +130,7 @@ class WindowTracker:
         self,
         self_hwnd: int | None,
         physics: PetPhysics | None = None,
+        previous_bottom: float | None = None,
     ) -> None:
         self.self_hwnd = self_hwnd
         rects = pet.windows_utils.getAllWindowsRects()
@@ -114,14 +160,33 @@ class WindowTracker:
         self.windows_by_hwnd = {window.hwnd: window for window in windows}
 
         if physics is not None:
-            self.refresh_container_from_position(physics)
+            self.refresh_container_from_position(
+                physics, previous_bottom=previous_bottom)
 
-    def refresh_container_from_position(self, physics: PetPhysics) -> None:
+    def refresh_container_from_position(
+        self,
+        physics: PetPhysics,
+        previous_bottom: float | None = None,
+    ) -> None:
         if physics.is_dragging:
+            self._trace(
+                "refresh_container_from_position skipped: physics is dragging")
+            return
+
+        if (
+            self.window_bounce is not None
+            and self.active_container_hwnd == self.window_bounce.hwnd
+        ):
+            self._trace(
+                f"refresh_container_from_position skipped: bounce active hwnd={self.window_bounce.hwnd}"
+            )
             return
 
         x, y = physics.body.position
         container = None
+        self._trace(
+            f"refresh_container_from_position body=({x:.1f}, {y:.1f}) active_container={self.active_container_hwnd} ignored={self.ignored_container_hwnd} previous_bottom={previous_bottom}"
+        )
 
         # 跳跃进入窗口期间的抑制逻辑：
         # - 如果已经有active_container（enter模式已成功附着），继续维护它的bounds同步
@@ -154,6 +219,8 @@ class WindowTracker:
         new_hwnd = container.hwnd if container else None
 
         if new_hwnd != self.active_container_hwnd:
+            self._log(
+                f"container changed {self.active_container_hwnd} -> {new_hwnd}")
             self.active_container_hwnd = new_hwnd
             self.active_platform_hwnd = None
 
@@ -170,6 +237,20 @@ class WindowTracker:
                         container.bottom,
                     )
                 )
+                if previous_bottom is not None:
+                    pet_bottom = y + COLLISION_HEIGHT / 2
+                    crossed_top = previous_bottom <= container.y <= pet_bottom
+                    horizontal_overlap = (
+                        x + COLLISION_WIDTH / 2 > container.x + 8
+                        and x - COLLISION_WIDTH / 2 < container.right - 8
+                    )
+                    impact_speed = abs(float(physics.body.velocity.y))
+                    self._log(
+                        f"container acquired hwnd={container.hwnd} crossed_top={crossed_top} horizontal_overlap={horizontal_overlap} impact_speed={impact_speed:.1f}"
+                    )
+                    if horizontal_overlap:
+                        self._arm_window_bounce_pending(
+                            container.hwnd, impact_speed)
                 self.sync_z_order_to_container(container.hwnd)
 
         elif container is not None:
@@ -196,6 +277,31 @@ class WindowTracker:
                 physics.rebuild_bounds(new_bounds)
                 self.activate_temporary_topmost()
 
+            if (
+                previous_bottom is not None
+                and self.active_platform_hwnd is None
+                and self.window_bounce is None
+            ):
+                pet_bottom = y + COLLISION_HEIGHT / 2
+                crossed_top = previous_bottom <= container.y <= pet_bottom
+                horizontal_overlap = (
+                    x + COLLISION_WIDTH / 2 > container.x + 8
+                    and x - COLLISION_WIDTH / 2 < container.right - 8
+                )
+                if crossed_top and horizontal_overlap:
+                    self._log(
+                        f"container acquired hwnd={container.hwnd} crossed_top={crossed_top} horizontal_overlap={horizontal_overlap} source=active_container"
+                    )
+                    self.active_platform_hwnd = container.hwnd
+                    self.ignored_container_hwnd = container.hwnd
+                    self._arm_window_bounce_pending(
+                        container.hwnd,
+                        max(abs(float(physics.body.velocity.y)), 60.0),
+                    )
+
+            self._trace(
+                f"container bounds refreshed hwnd={container.hwnd} bounds={new_bounds}")
+
             self.sync_z_order_to_container(container.hwnd)
 
     def handle_window_top_landing(
@@ -203,12 +309,19 @@ class WindowTracker:
         physics: PetPhysics,
         previous_bottom: float,
     ) -> None:
+        self._trace(
+            f"handle_window_top_landing enter previous_bottom={previous_bottom:.1f} active_container={self.active_container_hwnd} active_platform={self.active_platform_hwnd}"
+        )
         if self.active_container_hwnd is not None:
+            self._trace(
+                "handle_window_top_landing skipped: already inside a container")
             return
 
         # 跳跃进入窗口期间：抑制期内且没有active_container的情况下，
         # 暂停所有顶部着陆检测，防止路径上的第三个窗口把桌宠截停在半空
         if time.monotonic() < self.suppress_auto_container_until:
+            self._trace(
+                "handle_window_top_landing skipped: suppression active")
             return
 
         gx, gy = physics.body.position
@@ -218,6 +331,7 @@ class WindowTracker:
 
         vx, vy = physics.body.velocity
         if vy < 0:
+            self._trace(f"handle_window_top_landing skipped: vy={vy:.1f} < 0")
             return
 
         candidates = []
@@ -235,9 +349,13 @@ class WindowTracker:
                 candidates.append(window)
 
         if not candidates:
+            self._trace("handle_window_top_landing no candidate windows")
             return
 
         landed = candidates[0]
+        self._log(
+            f"handle_window_top_landing landed hwnd={landed.hwnd} title={landed.title!r} rect=({landed.x}, {landed.y}, {landed.right}, {landed.bottom})"
+        )
         target_y = max(
             COLLISION_HEIGHT / 2,
             landed.y - COLLISION_HEIGHT / 2,
@@ -249,6 +367,76 @@ class WindowTracker:
         self.active_platform_hwnd = landed.hwnd
         self.ignored_container_hwnd = landed.hwnd
         self.sync_z_order_to_container(landed.hwnd)
+        self._arm_window_bounce_pending(landed.hwnd, abs(float(vy)))
+
+    def start_window_bounce(self, hwnd: int, impact_speed: float | None = None) -> None:
+        from ctypes import wintypes
+        rect_struct = wintypes.RECT()
+        ok = ctypes.windll.user32.GetWindowRect(
+            ctypes.wintypes.HWND(hwnd), ctypes.byref(rect_struct))
+        if not ok:
+            return
+        rect = (rect_struct.left, rect_struct.top,
+                rect_struct.right, rect_struct.bottom)
+        self._log(f"start_window_bounce hwnd={hwnd} rect={rect}")
+
+        self.window_bounce = WindowBouncePhysics(
+            hwnd,
+            (int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3])),
+        )
+        self.window_bounce.kick(
+            impact_speed=240.0 if impact_speed is None else impact_speed)
+        self._log(
+            f"window bounce started hwnd={hwnd} mass={self.window_bounce.mass:.2f}")
+
+    def update_window_bounce(self, physics: PetPhysics) -> None:
+        self._maybe_start_window_bounce_pending(physics)
+
+        if self.window_bounce is None:
+            return
+
+        bounce = self.window_bounce
+        if bounce.finished:
+            self._trace(f"window bounce already finished hwnd={bounce.hwnd}")
+            self.window_bounce = None
+            return
+
+        offset_y, finished = bounce.step(STEP_SECONDS)
+        self._trace(
+            f"window bounce step hwnd={bounce.hwnd} offset_y={offset_y:.2f} finished={finished} origin_top={bounce.origin_top}"
+        )
+        if offset_y != 0.0:
+            pet.windows_utils.transformWindow(
+                bounce.hwnd,
+                y=bounce.origin_top + round(offset_y),
+            )
+            self._trace(
+                f"window moved hwnd={bounce.hwnd} y={bounce.origin_top + round(offset_y)}"
+            )
+
+            if self.active_container_hwnd == bounce.hwnd or self.active_platform_hwnd == bounce.hwnd:
+                physics.body.position = (
+                    physics.body.position.x,
+                    physics.body.position.y + offset_y,
+                )
+                self._trace(
+                    f"pet synced with bounced window hwnd={bounce.hwnd} body_y={physics.body.position.y:.2f}"
+                )
+
+        if finished:
+            try:
+                pet.windows_utils.transformWindow(
+                    bounce.hwnd,
+                    x=bounce.origin_left,
+                    y=bounce.origin_top,
+                    width=bounce.width,
+                    height=bounce.height,
+                )
+                self._log(
+                    f"window bounce restored hwnd={bounce.hwnd} to origin=({bounce.origin_left}, {bounce.origin_top}) size=({bounce.width}, {bounce.height})"
+                )
+            finally:
+                self.window_bounce = None
 
     def follow_active_platform(self, physics: PetPhysics) -> None:
         if (
@@ -284,6 +472,9 @@ class WindowTracker:
             )
             physics.body.position = (gx, platform_y)
             physics.body.velocity = (physics.body.velocity.x * 0.96, 0)
+            self._log(
+                f"follow_active_platform hwnd={platform.hwnd} platform_y={platform_y} body=({gx:.1f}, {physics.body.position.y:.1f})"
+            )
             self.sync_z_order_to_container(platform.hwnd)
 
     def sync_z_order_to_container(self, container_hwnd: int) -> None:
@@ -442,4 +633,7 @@ class WindowTracker:
         self.active_container_hwnd = None
         self.active_platform_hwnd = None
         self.ignored_container_hwnd = None
+        self.window_bounce = None
+        self.window_bounce_pending_hwnd = None
+        self.window_bounce_pending_impact_speed = 0.0
         physics.rebuild_bounds((0, 0, self.screen_width, self.screen_height))

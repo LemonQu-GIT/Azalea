@@ -192,3 +192,72 @@ class PetPhysics:
 
     def step(self, dt: float | None = None) -> None:
         self.space.step(STEP_SECONDS if dt is None else dt)
+
+
+class WindowBouncePhysics:
+    def __init__(self, hwnd: int, rect: tuple[int, int, int, int]):
+        left, top, right, bottom = rect
+
+        self.hwnd = int(hwnd)
+        self.origin_left = int(left)
+        self.origin_top = int(top)
+        self.width = max(1, int(right - left))
+        self.height = max(1, int(bottom - top))
+
+        self.mass = max(4.0, (self.width * self.height) / 140000.0)
+
+        self.space = pymunk.Space()
+        self.space.gravity = (0, 0)
+        self.space.damping = 0.96
+
+        moment = pymunk.moment_for_box(self.mass, (self.width, self.height))
+        self.body = pymunk.Body(self.mass, moment)
+        self.body.position = (0.0, 0.0)
+        self.body.velocity = (0.0, 0.0)
+
+        stiffness = 180.0 * self.mass
+        damping = 16.0 * self.mass
+        self.spring = pymunk.DampedSpring(  # type: ignore[attr-defined]
+            self.space.static_body,
+            self.body,
+            (0, 0),
+            (0, 0),
+            0.0,
+            stiffness,
+            damping,
+        )
+        self.space.add(self.body, self.spring)
+
+        self._settle_started_at: float | None = None
+        self._finished = False
+
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
+    def kick(self, impact_speed: float) -> None:
+        if self._finished:
+            return
+
+        impulse = clamp(abs(impact_speed) * 36.0, 320.0, 6800.0)
+        self.body.apply_impulse_at_local_point((0.0, impulse))
+        self._settle_started_at = None
+
+    def step(self, dt: float) -> tuple[float, bool]:
+        if self._finished:
+            return 0.0, True
+
+        self.space.step(dt)
+        offset_y = float(self.body.position.y)
+        velocity_y = float(self.body.velocity.y)
+
+        if abs(offset_y) < 0.4 and abs(velocity_y) < 16.0:
+            if self._settle_started_at is None:
+                self._settle_started_at = time.monotonic()
+            elif time.monotonic() - self._settle_started_at > 0.08:
+                self._finished = True
+                return 0.0, True
+        else:
+            self._settle_started_at = None
+
+        return offset_y, False
