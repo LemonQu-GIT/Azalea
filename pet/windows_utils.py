@@ -8,6 +8,37 @@ import numpy as np
 
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 ctypes.windll.user32.SetProcessDPIAware()
+dwmapi = ctypes.WinDLL("dwmapi")
+
+DwmGetColorizationColor = dwmapi.DwmGetColorizationColor
+DwmGetColorizationColor.argtypes = [
+    ctypes.POINTER(wintypes.DWORD),
+    ctypes.POINTER(wintypes.BOOL)
+]
+DwmGetColorizationColor.restype = ctypes.c_long
+
+
+def get_windows_theme_color(hex: bool = False) -> tuple[int, int, int, int] | str:
+    color = wintypes.DWORD()
+    opaque = wintypes.BOOL()
+
+    hr = DwmGetColorizationColor(
+        ctypes.byref(color),
+        ctypes.byref(opaque)
+    )
+
+    if hr != 0:
+        raise OSError(f"DwmGetColorizationColor failed: {hr}")
+
+    value = color.value
+
+    a = (value >> 24) & 0xFF
+    r = (value >> 16) & 0xFF
+    g = (value >> 8) & 0xFF
+    b = value & 0xFF
+    if hex:
+        return f"#{r:02X}{g:02X}{b:02X}{a:02X}"
+    return r, g, b, a
 
 
 def isWindowVisible(hwnd: int) -> bool:
@@ -174,5 +205,6 @@ def getScreenSize() -> tuple[int, int]:
 
 
 if __name__ == "__main__":
-    debugDrawWindows()
+    print(get_windows_theme_color(hex=True)[0:7])
+    # debugDrawWindows()
     # transformWindow(264370, 100, 100)

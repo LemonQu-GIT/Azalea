@@ -8,16 +8,39 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
-    QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QMenu,
-    QMessageBox,
+    QSizePolicy,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import LineEdit, SpinBox, PrimaryPushButton
+from qfluentwidgets import (
+    BoolValidator,
+    ColorConfigItem,
+    ConfigItem,
+    CustomColorSettingCard,
+    Dialog,
+    EnumSerializer,
+    ExpandLayout,
+    LineEdit,
+    OptionsConfigItem,
+    OptionsSettingCard,
+    OptionsValidator,
+    PasswordLineEdit,
+    PrimaryPushButton,
+    QConfig,
+    ScrollArea,
+    SettingCard,
+    SettingCardGroup,
+    SpinBox,
+    SwitchButton,
+    Theme,
+    PushButton,
+    qconfig,
+    setTheme,
+    setThemeColor,
+)
 from qfluentwidgets import (
     FluentIcon as FIF,
     SplitFluentWindow,
@@ -26,6 +49,104 @@ from qfluentwidgets import (
 )
 
 from pet.utils import loadConfig, saveConfig
+from pet.windows_utils import get_windows_theme_color
+
+
+class ThemeConfig(QConfig):
+    themeMode = OptionsConfigItem(
+        "ui", "theme", Theme.AUTO,
+        OptionsValidator(Theme), EnumSerializer(Theme),
+        restart=False,
+    )
+    themeColor = ColorConfigItem(
+        "QFluentWidgets", "ThemeColor", get_windows_theme_color(hex=True)[0:7])
+
+
+_theme_cfg_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), os.pardir, "theme.json")
+)
+themeCfg = ThemeConfig()
+themeCfg.themeMode.value = Theme.AUTO
+try:
+    qconfig.load(_theme_cfg_path, themeCfg)
+except Exception:
+    pass
+
+
+class LineEditSettingCard(SettingCard):
+    """ Setting card with a LineEdit on the right """
+
+    def __init__(self, icon, title, content=None, value="", parent=None):
+        super().__init__(icon, title, content, parent)
+        self.lineEdit = LineEdit(self)
+        self.lineEdit.setText(str(value))
+        self.lineEdit.setFixedWidth(320)
+        self.hBoxLayout.addWidget(
+            self.lineEdit, 0, Qt.AlignmentFlag.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def value(self) -> str:
+        return self.lineEdit.text().strip()
+
+    def setValue(self, value: str):
+        self.lineEdit.setText(str(value))
+
+
+class PasswordLineEditSettingCard(SettingCard):
+
+    def __init__(self, icon, title, content=None, value="", parent=None):
+        super().__init__(icon, title, content, parent)
+        self.lineEdit = PasswordLineEdit(self)
+        self.lineEdit.setText(str(value))
+        self.lineEdit.setFixedWidth(320)
+        self.lineEdit.setEchoMode(LineEdit.EchoMode.Password)
+        self.hBoxLayout.addWidget(
+            self.lineEdit, 0, Qt.AlignmentFlag.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def value(self) -> str:
+        return self.lineEdit.text().strip()
+
+    def setValue(self, value: str):
+        self.lineEdit.setText(str(value))
+
+
+class SpinBoxSettingCard(SettingCard):
+
+    def __init__(self, icon, title, content=None, value=0,
+                 range=(1, 65535), parent=None):
+        super().__init__(icon, title, content, parent)
+        self.spinBox = SpinBox(self)
+        self.spinBox.setRange(*range)
+        self.spinBox.setValue(int(value))
+        self.spinBox.setFixedWidth(160)
+        self.hBoxLayout.addWidget(self.spinBox, 0, Qt.AlignmentFlag.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def value(self) -> int:
+        return self.spinBox.value()
+
+    def setValue(self, value: int):
+        self.spinBox.setValue(int(value))
+
+
+class SwitchSettingCard(SettingCard):
+
+    def __init__(self, icon, title, content=None, value=False, parent=None):
+        super().__init__(icon, title, content, parent)
+        self.switchButton = SwitchButton(self)
+        self.switchButton.setChecked(bool(value))
+        self.switchButton.setOnText("开")
+        self.switchButton.setOffText("关")
+        self.hBoxLayout.addWidget(
+            self.switchButton, 0, Qt.AlignmentFlag.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def value(self) -> bool:
+        return self.switchButton.isChecked()
+
+    def setValue(self, value: bool):
+        self.switchButton.setChecked(bool(value))
 
 
 def _find_free_tcp_port() -> int:
@@ -59,72 +180,201 @@ def _send_tcp_cmd(port: int, cmd: str, timeout: float = 1.5) -> str | None:
 
 
 class SettingsWidget(QWidget):
+
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("settingsInterface")
-        self.vBoxLayout = QVBoxLayout(self)
-        self.vBoxLayout.setContentsMargins(20, 48, 20, 20)
-        self.vBoxLayout.setSpacing(16)
+        self.setStyleSheet("#settingsInterface { background: transparent; }")
 
-        label = SubtitleLabel("AI 桌宠设置")
-        setFont(label, 24)
-        self.vBoxLayout.addWidget(label)
+        self.scrollWidget = QWidget()
+        self.expandLayout = ExpandLayout(self.scrollWidget)
+
+        # 标题
+        self.settingLabel = SubtitleLabel("AI 桌宠设置", self.scrollWidget)
+        setFont(self.settingLabel, 24)
 
         self.config = loadConfig()
+        llm_cfg = self.config["llm"]
+        server_cfg = self.config["petServer"]
 
-        self.llmGroup = QGroupBox("LLM 配置")
-        llmLayout = QFormLayout(self.llmGroup)
-        llmLayout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        # --- UI 外观组 ---
+        self.uiGroup = SettingCardGroup("UI 外观", self.scrollWidget)
 
-        self.endpointEdit = LineEdit()
-        self.endpointEdit.setText(self.config["llm"]["endpoint"])
-        self.apiKeyEdit = LineEdit()
-        self.apiKeyEdit.setText(self.config["llm"]["api_key"])
-        self.modelEdit = LineEdit()
-        self.modelEdit.setText(self.config["llm"]["model"])
-        self.embeddingModelEdit = LineEdit()
-        self.embeddingModelEdit.setText(self.config["llm"]["embedding_model"])
+        self.themeCard = OptionsSettingCard(
+            themeCfg.themeMode,
+            FIF.BRUSH,
+            "主题",
+            "改变应用的整体外观（浅色 / 深色 / 跟随系统）",
+            texts=["浅色", "深色", "跟随系统"],
+            parent=self.uiGroup,
+        )
+        self.themeCard.optionChanged.connect(
+            lambda ci: setTheme(ci.value)
+        )
 
-        llmLayout.addRow("endpoint", self.endpointEdit)
-        llmLayout.addRow("api_key", self.apiKeyEdit)
-        llmLayout.addRow("model", self.modelEdit)
-        llmLayout.addRow("embedding_model", self.embeddingModelEdit)
+        self.themeColorCard = CustomColorSettingCard(
+            themeCfg.themeColor,
+            FIF.PALETTE,
+            "主题色",
+            "改变应用的主题强调色",
+            parent=self.uiGroup,
+        )
+        self.themeColorCard.colorChanged.connect(setThemeColor)
 
-        self.serverGroup = QGroupBox("PetServer 配置")
-        serverLayout = QFormLayout(self.serverGroup)
-        serverLayout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.uiGroup.addSettingCard(self.themeCard)
+        self.uiGroup.addSettingCard(self.themeColorCard)
 
-        self.hostEdit = LineEdit()
-        self.hostEdit.setText(self.config["petServer"]["host"])
-        self.portEdit = SpinBox()
-        self.portEdit.setRange(1, 65535)
-        self.portEdit.setValue(int(self.config["petServer"]["port"]))
+        # --- LLM 配置组 ---
+        self.llmGroup = SettingCardGroup("LLM 配置", self.scrollWidget)
 
-        serverLayout.addRow("host", self.hostEdit)
-        serverLayout.addRow("port", self.portEdit)
+        self.llmEnabledCard = SwitchSettingCard(
+            FIF.EDIT,
+            "启用 LLM",
+            "是否启用大模型对话与智能功能",
+            value=bool(llm_cfg.get("enabled", False)),
+            parent=self.llmGroup,
+        )
+        self.endpointCard = LineEditSettingCard(
+            FIF.CLOUD,
+            "Endpoint",
+            "API 请求的基础地址",
+            value=llm_cfg.get("endpoint", ""),
+            parent=self.llmGroup,
+        )
+        self.apiKeyCard = PasswordLineEditSettingCard(
+            FIF.VPN,
+            "API Key",
+            "用于认证的 API Key",
+            value=llm_cfg.get("api_key", ""),
+            parent=self.llmGroup,
+        )
+        self.modelCard = LineEditSettingCard(
+            FIF.LIBRARY,
+            "Model",
+            "对话使用的模型名称",
+            value=llm_cfg.get("model", ""),
+            parent=self.llmGroup,
+        )
+        self.embeddingModelCard = LineEditSettingCard(
+            FIF.FOLDER,
+            "Embedding Model",
+            "向量化模型路径或名称",
+            value=llm_cfg.get("embedding_model", ""),
+            parent=self.llmGroup,
+        )
 
-        self.saveButton = PrimaryPushButton("保存配置")
+        self.llmGroup.addSettingCard(self.llmEnabledCard)
+        self.llmGroup.addSettingCard(self.endpointCard)
+        self.llmGroup.addSettingCard(self.apiKeyCard)
+        self.llmGroup.addSettingCard(self.modelCard)
+        self.llmGroup.addSettingCard(self.embeddingModelCard)
+
+        # --- PetServer 配置组 ---
+        self.serverGroup = SettingCardGroup("PetServer 配置", self.scrollWidget)
+
+        self.hostCard = LineEditSettingCard(
+            FIF.IOT,
+            "Host",
+            "本地 PetServer 监听地址",
+            value=server_cfg.get("host", "127.0.0.1"),
+            parent=self.serverGroup,
+        )
+        self.portCard = SpinBoxSettingCard(
+            FIF.RINGER,
+            "Port",
+            "本地 PetServer 监听端口",
+            value=int(server_cfg.get("port", 8001)),
+            range=(1, 65535),
+            parent=self.serverGroup,
+        )
+
+        self.serverGroup.addSettingCard(self.hostCard)
+        self.serverGroup.addSettingCard(self.portCard)
+
+        # ---- 结构：外层 QWidget → 内层 ScrollArea（内容，可滚）+ Footer（保存按钮，常驻底部） ----
+        # 理由：保存按钮必须常驻视口底部，不能滚出去，也不能被窗口下边缘截断。
+
+        # 内层 ScrollArea 承载所有 SettingCardGroup（self.scrollWidget = expandLayout 的宿主）
+        innerScroll = ScrollArea(self)
+        innerScroll.setWidget(self.scrollWidget)
+        innerScroll.setWidgetResizable(True)
+        innerScroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.scrollWidget.setObjectName("scrollWidget")
+        innerScroll.setStyleSheet("""
+            QScrollArea, #scrollWidget {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+
+        # --- 保存按钮（Footer 区域，固定在视口最下方） ---
+        self.saveButton = PrimaryPushButton("保存配置", self)
+        self.saveButton.setFixedHeight(40)
+        self.saveButton.setFixedWidth(180)
         self.saveButton.clicked.connect(self.save_config)
 
-        self.vBoxLayout.addWidget(self.llmGroup)
-        self.vBoxLayout.addWidget(self.serverGroup)
-        self.vBoxLayout.addStretch(1)
+        footer = QWidget(self)
+        footer.setMinimumHeight(72)
+        footer.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        footerLayout = QHBoxLayout(footer)
+        footerLayout.setContentsMargins(36, 16, 36, 20)
+        footerLayout.addStretch(1)
+        footerLayout.addWidget(self.saveButton)
+        footer.setStyleSheet("background: transparent;")
 
-        buttonRow = QHBoxLayout()
-        buttonRow.addStretch(1)
-        buttonRow.addWidget(self.saveButton)
-        self.vBoxLayout.addLayout(buttonRow)
+        # ---- 外层布局 ----
+        outerLayout = QVBoxLayout(self)
+        outerLayout.setContentsMargins(0, 0, 0, 0)
+        outerLayout.setSpacing(0)
+        outerLayout.addWidget(innerScroll, 1)
+        outerLayout.addWidget(footer, 0)
+
+        self.expandLayout.setSpacing(28)
+        self.expandLayout.setContentsMargins(36, 48, 36, 32)
+        self.expandLayout.addWidget(self.settingLabel)
+        self.expandLayout.addWidget(self.uiGroup)
+        self.expandLayout.addWidget(self.llmGroup)
+        self.expandLayout.addWidget(self.serverGroup)
+
+    def _show_dialog(self, title: str, content: str):
+        """参考 examples/dialog_flyout/dialog/demo.py 的 Dialog 用法。"""
+        w = Dialog(title, content, self)
+        try:
+            yes_btn = w.yesButton
+            cancel_btn = w.cancelButton
+            if isinstance(yes_btn, (PrimaryPushButton, PushButton)):
+                yes_btn.setText("确定")
+            if cancel_btn is not None:
+                cancel_btn.hide()
+        except Exception:
+            pass
+        w.exec()
 
     def save_config(self):
-        endpoint = self.endpointEdit.text().strip()
-        api_key = self.apiKeyEdit.text().strip()
-        model = self.modelEdit.text().strip()
-        embedding_model = self.embeddingModelEdit.text().strip()
-        host = self.hostEdit.text().strip()
-        port = self.portEdit.value()
+        endpoint = self.endpointCard.value()
+        api_key = self.apiKeyCard.value()
+        model = self.modelCard.value()
+        embedding_model = self.embeddingModelCard.value()
+        enabled = self.llmEnabledCard.value()
+        host = self.hostCard.value()
+        port = self.portCard.value()
 
-        if not all([endpoint, api_key, model, embedding_model, host]):
-            QMessageBox.warning(self, "保存失败", "请先填写完整的 LLM 和 petServer 配置。")
+        if enabled:
+            if not all([endpoint, api_key, model, embedding_model]):
+                self._show_dialog(
+                    "保存失败",
+                    "启用 LLM 后，请先填写完整的 LLM 配置。",
+                )
+                return
+        if not host:
+            self._show_dialog(
+                "保存失败",
+                "PetServer 的 host 不能为空。",
+            )
             return
 
         self.config["llm"].update(
@@ -133,17 +383,36 @@ class SettingsWidget(QWidget):
                 "api_key": api_key,
                 "model": model,
                 "embedding_model": embedding_model,
+                "enabled": enabled,
             }
         )
         self.config["petServer"].update({"host": host, "port": port})
 
         saveConfig(self.config)
-        QMessageBox.information(self, "保存成功", "配置已保存，请重启程序后生效。")
+
+        try:
+            qconfig.save()
+        except Exception:
+            pass
+
+        self._show_dialog(
+            "保存成功",
+            "配置已保存，请重启程序后生效。",
+        )
 
 
 class SettingsWindow(SplitFluentWindow):
+    _TARGET_W = 900
+    _TARGET_H = 700
+
     def __init__(self):
         super().__init__()
+        setTheme(themeCfg.themeMode.value)
+        setThemeColor(themeCfg.themeColor.value)
+
+        self.setMinimumSize(self._TARGET_W, self._TARGET_H)
+        self.resize(self._TARGET_W, self._TARGET_H)
+
         self.settingsInterface = SettingsWidget(self)
         self.initNavigation()
         self.initWindow()
@@ -152,12 +421,25 @@ class SettingsWindow(SplitFluentWindow):
         self.addSubInterface(self.settingsInterface, FIF.SETTING, "设置")
 
     def initWindow(self):
-        self.resize(800, 600)
         self.setWindowTitle("桌宠设置")
         self.setWindowIcon(QIcon('./front/icon.png'))
-        desktop = QApplication.screens()[0].availableGeometry()
+        self._center_window()
+
+    def _center_window(self):
+        screen = self.screen() or QApplication.screens()[0]
+        desktop = screen.availableGeometry()
         w, h = desktop.width(), desktop.height()
         self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
+
+    def showEvent(self, event):  # type: ignore
+        setTheme(themeCfg.themeMode.value)
+        setThemeColor(themeCfg.themeColor.value)
+
+        super().showEvent(event)
+        current = self.size()
+        if current.width() != self._TARGET_W or current.height() != self._TARGET_H:
+            self.resize(self._TARGET_W, self._TARGET_H)
+        self._center_window()
 
 
 class SystemTray(QSystemTrayIcon):

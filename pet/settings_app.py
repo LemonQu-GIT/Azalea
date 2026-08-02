@@ -162,8 +162,22 @@ def main():
     # 不调用 win.show()
 
     bridge = CommandBridge()
-    bridge.show_requested.connect(
-        lambda: (win.show(), win.raise_(), win.activateWindow()))
+
+    def _show_settings():
+        # 强制应用目标尺寸 + 居中，解决预创建后尺寸被拉成正方形的问题
+        from PyQt6.QtCore import QSize
+        win.resize(QSize(900, 700))
+        screen = win.screen() or QApplication.screens()[0]
+        geom = screen.availableGeometry()
+        win.move(
+            geom.x() + (geom.width() - 900) // 2,
+            geom.y() + (geom.height() - 700) // 2,
+        )
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    bridge.show_requested.connect(_show_settings)
     bridge.hide_requested.connect(win.hide)
     bridge.quit_requested.connect(app.quit)
 
