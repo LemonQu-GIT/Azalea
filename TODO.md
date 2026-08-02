@@ -28,3 +28,7 @@
 
 * [ ] 如果输出的action list中含chat，那么最好是chat在说话之后的同时执行其他task，因为chat会花很长时间，如果是比如先jump一下，然后思考个一分多钟再说话就很奇怪
 * [X] 加“摸头”功能
+
+08-02 thoughts
+
+* [ ] 不应该是停止拖拽桌宠就立刻播放idle动画，应该是一直播放formation pickup直到落地/碰撞

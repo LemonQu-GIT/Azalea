@@ -306,7 +306,6 @@ async def ai_brain_core(action: Actions | None = None):
             print("--- End loop ---")
             consecutive_failures = 0
 
-            # 轮次结束：用户消息 / 摸头 有任何一个挂起，都直接下一轮（不 sleep）
             pending_user_msg = _get_user_message_nowait()
             pending_head_pat = _get_head_pat_nowait()
             if pending_user_msg is not None or pending_head_pat:
@@ -317,16 +316,13 @@ async def ai_brain_core(action: Actions | None = None):
             backoff = min(SLEEP_TIME * consecutive_failures, 60)
             err_header = f"[AI Brain Loop] 本轮执行异常 (连续失败 {consecutive_failures} 次, 将退避 {backoff}s 后继续): {type(exc).__name__}: {exc}"
             pet.utils.log(err_header + "\n" + traceback.format_exc(), "ERROR")
-            # 异常情况下也尝试取一下用户消息或摸头事件，如果有则不要 sleep 太久
             pending_user_msg = _get_user_message_nowait()
             pending_head_pat = _get_head_pat_nowait()
             if pending_user_msg is not None or pending_head_pat:
-                # 有挂起事件：不做退避，立刻下一轮
                 continue
             await asyncio.sleep(backoff)
             continue
 
-        # ========= sleep 阶段：每次 1 秒，检查 schedule、用户消息、摸头 =========
         sleep_broken_by_user = False
         for _ in range(SLEEP_TIME):
             now_time = time.time()
@@ -334,12 +330,11 @@ async def ai_brain_core(action: Actions | None = None):
                 if now_time >= task["time"]:
                     schedule_run = task
                     break
-            # 用户在 sleep 阶段发消息 → 立刻 break
             pending_user_msg = _get_user_message_nowait()
             if pending_user_msg is not None:
                 sleep_broken_by_user = True
                 break
-            # 用户在 sleep 阶段摸头 → 立刻 break
+
             if _get_head_pat_nowait():
                 pending_head_pat = True
                 sleep_broken_by_user = True
@@ -347,15 +342,11 @@ async def ai_brain_core(action: Actions | None = None):
             await asyncio.sleep(1)
 
         if sleep_broken_by_user:
-            # continue 到 while True 顶部，pending 会在本轮开始被处理
             continue
-        # 正常 sleep 结束：也先检查一下有没有新事件再下一轮，
-        # 如果有则直接用（这样避免多等 1 秒）
         if pending_user_msg is None:
             pending_user_msg = _get_user_message_nowait()
         if not pending_head_pat:
             pending_head_pat = _get_head_pat_nowait()
-        # 如果有 pending，下次 while 循环开始会直接用，不再需要额外操作
 
 
 async def ai_brain_loop():
