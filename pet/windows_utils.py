@@ -3,7 +3,6 @@ import ctypes
 import ctypes.wintypes
 import win32gui
 import time
-import cv2
 import numpy as np
 
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
@@ -177,6 +176,7 @@ def transformWindow(hwnd: int, x: int | None = None, y: int | None = None, width
 
 
 def debugDrawWindows():
+    import cv2
     if cv2 is None or np is None:
         raise RuntimeError(
             "debugDrawWindows() requires opencv-python and numpy")

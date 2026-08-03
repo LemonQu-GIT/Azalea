@@ -83,11 +83,18 @@ async def ai_brain_core(action: Actions | None = None):
 
     manager = await asyncio.to_thread(pet.memory_utils.MemoryManager)
 
-    SLEEP_TIME = 10
+    if config['llm']['talk_frequency'] == "low":
+        SLEEP_TIME = 20
+    elif config['llm']['talk_frequency'] == "high":
+        SLEEP_TIME = 5
+    else:
+        SLEEP_TIME = 10
+
     schedule: list[dict] = []
     schedule_run = None
 
     consecutive_failures = 0
+    no_respond_loops = 0
     pending_user_msg: str | None = None
     pending_head_pat: bool = False
 
@@ -106,9 +113,10 @@ async def ai_brain_core(action: Actions | None = None):
         head_pat_triggered = bool(this_round_head_pat)
 
         try:
-            print("\n--- Next Loop ---" +
-                  (" [USER MESSAGE TRIGGERED]" if user_triggered else "") +
-                  (" [HEAD PAT TRIGGERED]" if head_pat_triggered else ""))
+            pet.utils.log(
+                f"开始新一轮循环 (用户消息触发: {user_triggered}, 摸头触发: {head_pat_triggered}, 计划触发: {schedule_run is not None})",
+                "INFO", save=False
+            )
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             now_time = time.time()
 
@@ -118,26 +126,35 @@ async def ai_brain_core(action: Actions | None = None):
             # ========= 优先级：用户聊天 > 摸头 > 计划触发 > 常规 idle =========
             # 全部统一进入 control_reply 大脑决策，不再绕过大脑
             if user_triggered and this_round_user_msg:
+                no_respond_loops = 0
                 user_text = this_round_user_msg
-                print(f"[User Chat] {user_text}")
+                pet.utils.log(f"处理主动消息：{user_text}", "INFO")
                 assembled_content = f"现在是 {now}。用户主动对桌宠发消息，消息内容为：\n'''{user_text}'''\n请根据截屏判断桌宠的行为。"
                 schedule_run = None
 
             elif head_pat_triggered:
-                print(f"[Head Pat] 用户摸了摸桌宠的头。")
+                no_respond_loops = 0
+                pet.utils.log(f"处理摸头事件www", "INFO")
                 assembled_content = f"现在是 {now}。用户摸了摸桌宠的头。请根据截屏判断桌宠的行为。"
                 schedule_run = None
 
             elif schedule_run:
-                print(
-                    f"[Schedule Triggered] 计划触发: {schedule_run['content']} (计划时间: "
-                    f"{datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})"
+                no_respond_loops += 1
+                pet.utils.log(
+                    f"计划触发: {schedule_run['content']} (计划时间: {datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})",
+                    "INFO"
                 )
                 assembled_content = f"计划触发: {schedule_run['content']} (计划时间: {datetime.fromtimestamp(schedule_run['time']).strftime('%Y-%m-%d %H:%M:%S')})"
                 schedule.remove(schedule_run)
                 schedule_run = None
             else:
+                no_respond_loops += 1
                 assembled_content = f"现在是 {now}，距离桌宠上一次做出行为过去了{now_time - last_activity_time:.2f}秒。请根据截屏判断桌宠的行为。"
+
+            if config['llm']['talk_frequency'] == "low":
+                assembled_content = "用户希望桌宠尽量少说话。" + assembled_content
+            elif config['llm']['talk_frequency'] == "high":
+                assembled_content = "用户希望桌宠尽量多说话。" + assembled_content
 
             control_messages.append({
                 "role": "user",
@@ -163,10 +180,15 @@ async def ai_brain_core(action: Actions | None = None):
 
                 if control_reply_json and isinstance(control_reply_json, list):
                     for task in control_reply_json:
-                        print(f"Task executed: {task}")
-
                         if task.get("action") == "chat":
                             reason = task.get("reason", "")
+
+                            if user_triggered and this_round_user_msg:
+                                pet.utils.log(
+                                    f"正在处理用户消息，原因: {reason}", "EVENT")
+                            else:
+                                pet.utils.log(
+                                    f"正在处理对话任务，原因: {reason}", "EVENT")
 
                             retrieved_mems = await _to_thread_kw(
                                 manager.retrieve_for_chat, reason
@@ -208,11 +230,8 @@ async def ai_brain_core(action: Actions | None = None):
                             )
 
                             if chat_reply:
-                                print(f"<<< {chat_reply}")
                                 reply_text = str(chat_reply)
-                                duration = max(10.0, len(reply_text) * 0.1)
-                                await action.show_message(reply_text, duration=duration)
-                                await _push_ai_reply(reply_text)
+                                task["reply_text"] = reply_text
                                 if user_triggered and this_round_user_msg:
                                     mem_for = this_round_user_msg
                                 else:
@@ -220,22 +239,29 @@ async def ai_brain_core(action: Actions | None = None):
                                 new_memories = await _to_thread_kw(
                                     manager.generate_memories, mem_for, chat_reply
                                 )
-                                if new_memories:
-                                    for mem in new_memories:
-                                        if isinstance(mem, dict):
-                                            mem_content = mem.get("content")
-                                            if mem_content is None:
-                                                continue
-                                            await _to_thread_kw(
-                                                manager.add_memory,
-                                                content=mem_content,
-                                                type=mem.get("type", "fact"),
-                                                importance=mem.get(
-                                                    "importance", 5),
-                                            )
-                                            print(
-                                                f"[Memory Saved] 成功记录新的长期记忆: {mem_content}"
-                                            )
+                                for mem in new_memories:
+                                    if isinstance(mem, dict):
+                                        mem_content = mem.get("content")
+                                        if mem_content is None:
+                                            continue
+                                        await _to_thread_kw(
+                                            manager.add_memory,
+                                            content=mem_content,
+                                            type=mem.get("type", "fact"),
+                                            importance=mem.get(
+                                                "importance", 5),
+                                        )
+                                        pet.utils.log(
+                                            f"新记忆已添加: {mem_content}", "INFO")
+                    for task in control_reply_json:
+                        if task.get("action") == "chat":
+                            last_activity_time = now_time
+                            reply_text = task.get("reply_text", "")
+                            if not reply_text:
+                                continue
+                            duration = max(10.0, len(reply_text) * 0.1)
+                            await action.show_message(reply_text, duration=duration)
+                            await _push_ai_reply(reply_text)
                         elif task.get("action") == "schedule":
                             time_str = task.get("time")
                             content = task.get("content")
@@ -246,64 +272,56 @@ async def ai_brain_core(action: Actions | None = None):
                                 schedule.append(
                                     {"time": parse_time, "content": content}
                                 )
-                                print(
-                                    f"[Schedule Added] 成功添加计划: {time_str} - {content}"
+                                pet.utils.log(
+                                    f"成功添加计划: {time_str} - {content}",
+                                    "EVENT"
                                 )
                         elif task.get("action") == "walk":
                             distance = task.get("distance")
                             sit_after = task.get("sit", False)
                             if distance is not None:
                                 last_activity_time = now_time
-                                print(f"[Action] 桌宠行走: 距离={distance}")
                                 await action.walk(int(distance), sit_after=sit_after)
                         elif task.get("action") == "walk_to":
                             x = task.get("x")
                             sit_after = task.get("sit", False)
                             if x is not None:
                                 last_activity_time = now_time
-                                print(f"[Action] 桌宠走到x坐标: x={x}")
                                 await action.walk_to(int(x), sit_after=sit_after)
                         elif task.get("action") == "climb_window":
                             hwnd = task.get("hwnd")
                             sit_after = task.get("sit", False)
                             if hwnd:
                                 last_activity_time = now_time
-                                print(f"[Action] 桌宠爬窗口: hwnd={hwnd}")
                                 await action.climb_window(int(hwnd), sit_after=sit_after)
                         elif task.get("action") == "jump_on_window":
                             hwnd = task.get("hwnd")
                             sit_after = task.get("sit", False)
                             if hwnd:
                                 last_activity_time = now_time
-                                print(f"[Action] 桌宠跳到窗口上: hwnd={hwnd}")
                                 await action.jump_on_window(int(hwnd), sit_after=sit_after)
                         elif task.get("action") == "jump_into_window":
                             hwnd = task.get("hwnd")
                             sit_after = task.get("sit", False)
                             if hwnd:
                                 last_activity_time = now_time
-                                print(f"[Action] 桌宠跳入窗口: hwnd={hwnd}")
                                 await action.jump_into_window(int(hwnd), sit_after=sit_after)
                         elif task.get("action") == "jump":
                             height = int(task.get("height", 95))
                             times = int(task.get("times", 1))
                             last_activity_time = now_time
-                            print(
-                                f"[Action] 桌宠原地跳跃: 高度={height} 次数={times}")
                             await action.jump(height=height, times=times)
                         elif task.get("action") == "stand":
                             last_activity_time = now_time
-                            print(f"[Action] 桌宠站立")
                             await action.stand()
                         elif task.get("action") == "sit":
                             last_activity_time = now_time
-                            print(f"[Action] 桌宠坐下")
                             await action.sit()
 
             await _to_thread_kw(pet.ai_utils.save_context, control_messages, "control_context")
             await _to_thread_kw(pet.ai_utils.save_context, chat_messages, "chat_context")
 
-            print("--- End loop ---")
+            pet.utils.log(f"本轮结束，休眠 {SLEEP_TIME}s", "INFO", save=False)
             consecutive_failures = 0
 
             pending_user_msg = _get_user_message_nowait()
@@ -314,8 +332,8 @@ async def ai_brain_core(action: Actions | None = None):
         except Exception as exc:
             consecutive_failures += 1
             backoff = min(SLEEP_TIME * consecutive_failures, 60)
-            err_header = f"[AI Brain Loop] 本轮执行异常 (连续失败 {consecutive_failures} 次, 将退避 {backoff}s 后继续): {type(exc).__name__}: {exc}"
-            pet.utils.log(err_header + "\n" + traceback.format_exc(), "ERROR")
+            err_header = f"本轮执行异常 (连续失败 {consecutive_failures} 次, 将退避 {backoff}s 后继续)\n{traceback.format_exc()}"
+            pet.utils.log(err_header, "ERROR")
             pending_user_msg = _get_user_message_nowait()
             pending_head_pat = _get_head_pat_nowait()
             if pending_user_msg is not None or pending_head_pat:
@@ -324,6 +342,9 @@ async def ai_brain_core(action: Actions | None = None):
             continue
 
         sleep_broken_by_user = False
+
+        SLEEP_TIME += (no_respond_loops // 3) * 5
+
         for _ in range(SLEEP_TIME):
             now_time = time.time()
             for task in schedule:
@@ -361,7 +382,7 @@ async def ai_brain_loop():
                 await ai_brain_core(action)
             else:
                 pet.utils.log(
-                    "[AI Brain Loop] LLM 未启用，跳过 AI 大脑核心执行", "INFO", save=False)
+                    "LLM 未启用，跳过 AI 决策执行", "INFO", save=False)
                 while not config['llm']['enabled']:
                     await asyncio.sleep(60)
         except asyncio.CancelledError:
@@ -369,7 +390,6 @@ async def ai_brain_loop():
         except Exception as exc:
             crash_count += 1
             backoff = min(5 * (2 ** min(crash_count, 5)), 60)
-            header = f"[AI Brain Loop FATAL] AI 大脑核心崩溃 (第 {crash_count} 次), {backoff}s 后重启: {type(exc).__name__}: {exc}"
-            pet.utils.log(header + "\n" +
-                          traceback.format_exc(), "CRITICAL")
+            header = f"AI 决策崩溃 (第 {crash_count} 次), {backoff}s 后重启\n{traceback.format_exc()}"
+            pet.utils.log(header, "CRITICAL")
             await asyncio.sleep(backoff)

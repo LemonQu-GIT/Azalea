@@ -29,7 +29,6 @@ head_pat_queue: asyncio.Queue[bool] = asyncio.Queue()
 # 每一项是回复内容字符串
 ai_reply_queue: asyncio.Queue[str] = asyncio.Queue()
 
-# 活跃的对话框 WebSocket 连接列表
 chat_ws_connections: list[WebSocket] = []
 
 
@@ -52,10 +51,10 @@ def _on_ai_task_done(task: asyncio.Task):
     try:
         task.result()
     except asyncio.CancelledError:
-        msg = f"[ai_task] AI 任务已被取消 (done_callback 确认)"
+        msg = f"任务已被取消 (done_callback 确认)"
         pet.utils.log(msg, "INFO", save=False)
     except Exception as exc:
-        header = f"[ai_task DONE_CALLBACK] AI 任务以异常结束 (未被 ai_brain_loop 捕获到): {type(exc).__name__}: {exc}"
+        header = f"任务以异常结束 (未被 ai_brain_loop 捕获到): {type(exc).__name__}: {exc}"
         pet.utils.log(header, "FATAL")
 
 
@@ -114,7 +113,7 @@ async def chat_close_post():
         emitter.request_close_chat.emit()
     except Exception:
         pet.utils.log(
-            "[chat_close] emit request_close_chat 异常:\n" + traceback.format_exc(),
+            "emit request_close_chat 异常:\n" + traceback.format_exc(),
             "ERROR",
         )
     return JSONResponse({"ok": True})
@@ -144,7 +143,7 @@ async def _ai_reply_forwarder_task():
             })
         except Exception:
             pet.utils.log(
-                "[ai_reply_forwarder] 异常:\n" + traceback.format_exc(),
+                "异常:\n" + traceback.format_exc(),
                 "ERROR",
             )
             await asyncio.sleep(0.5)
@@ -182,7 +181,7 @@ async def chat_websocket_endpoint(websocket: WebSocket):
                     emitter.request_close_chat.emit()
                 except Exception:
                     pet.utils.log(
-                        "[chat_ws close_window] emit request_close_chat 异常:\n"
+                        "emit request_close_chat 异常:\n"
                         + traceback.format_exc(),
                         "ERROR",
                     )
@@ -212,7 +211,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 pass
         ai_task = asyncio.create_task(ai_brain_loop())
         ai_task.add_done_callback(_on_ai_task_done)
-        pet.utils.log("AI 大脑任务已启动", "INFO", save=False)
+        pet.utils.log("决策任务已启动", "INFO", save=False)
 
     try:
         while True:

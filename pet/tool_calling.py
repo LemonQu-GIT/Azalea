@@ -133,7 +133,7 @@ tools = [
 ]
 
 
-def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 15, reasoning_effort: str = "none") -> str:
+def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 15, reasoning_effort: str = config['llm']['reasoning_effort']) -> str:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     for _ in range(max_iterations):
         response = client.chat.completions.create(
@@ -153,16 +153,16 @@ def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = 
 
         for tool_call in msg.tool_calls:
             func_name = tool_call.function.name  # type:ignore
-            print(f"[Tool Calling] 模型正在调用工具: {func_name}")
+            pet.utils.log(f"模型正在调用工具: {func_name}", "INFO")
             try:
                 func_args = json.loads(
                     tool_call.function.arguments)  # type:ignore
                 func_to_call = AVAILABLE_FUNCTIONS[func_name]
                 func_response = func_to_call(**func_args)
-                print(f"[Tool Calling] {func_name} 执行结果: {func_response}")
+                pet.utils.log(f"工具 {func_name} 执行结果: {func_response}", "INFO")
             except Exception as e:
                 func_response = json.dumps({"error": str(e)})
-                print(f"[Tool Calling Error] {e}")
+                pet.utils.log(f"工具调用错误: {e}", "ERROR")
 
             messages.append({
                 "tool_call_id": tool_call.id,

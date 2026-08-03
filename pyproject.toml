@@ -1,0 +1,27 @@
+[project]
+name = "Azalea"
+version = "1.0.0"
+description = "DesktopPet for all students in Kivotos"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4",
+    "faiss>=1.5.3",
+    "fastapi==0.141.1",
+    "numpy",
+    "openai",
+    "Pillow",
+    "pyautogui",
+    "pydantic",
+    "pyglet",
+    "pymunk",
+    "pynput",
+    "PyQt6",
+    "pyqt6_fluent_widgets",
+    "pyqt6_sip",
+    "pywin32",
+    "Requests",
+    "rich",
+    "sentence_transformers",
+    "uvicorn>=0.52.1"
+]

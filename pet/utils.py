@@ -43,6 +43,8 @@ def log(content: str, eventType: str, show: bool = True, save: bool = True):
         style = "bold red"
     elif eventType.lower() == "event":
         style = "#ffab70"
+    elif eventType.lower() == "warning":
+        style = "yellow"
     else:
         style = ""
     if show:

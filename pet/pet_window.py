@@ -601,7 +601,7 @@ class PetWindow(QWidget):
             self.chat_window.show()
         except Exception:
             pet.utils.log(
-                f"[open_chat_window] 异常:\n{traceback.format_exc()}",
+                f"异常:\n{traceback.format_exc()}",
                 "ERROR",
             )
 
@@ -1549,7 +1549,8 @@ class PetWindow(QWidget):
         # 3) 速度足够小（已经稳定，不是弹跳中的瞬时接触）
         low_speed = speed_sq < 180.0 * 180.0
 
-        landed = (tracker_landed and low_speed) or (touched_floor and low_speed)
+        landed = (tracker_landed and low_speed) or (
+            touched_floor and low_speed)
 
         if landed or timeout:
             self._waiting_for_land_after_drag = False

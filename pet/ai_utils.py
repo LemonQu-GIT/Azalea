@@ -301,7 +301,7 @@ def img2base64(img: np.ndarray | Image.Image) -> str:
     return base64.b64encode(img_buffer.read()).decode('utf-8')
 
 
-def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = "none") -> str | None:
+def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = config['llm']['reasoning_effort']) -> str | None:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     response = client.chat.completions.create(
         model=config['llm']['model'],
@@ -403,6 +403,10 @@ def save_context(context: list, fn: str):
         json.dump(context, f, ensure_ascii=False, indent=4)
 
 
+def generate_tts(text):
+    pass
+
+
 control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用户当前的状态判断桌宠的行为。
 你的角色是《蔚蓝档案》中的圣园未花，是圣三一综合学园所属，构成圣三一的学生组织“茶话会”的成员之一。
 我会向你提供用户电脑截屏，用户也有可能直接发送消息，你需要给出桌宠的行为。
@@ -413,7 +417,7 @@ control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用
 - walk_to: 走到屏幕指定的x坐标，格式为{"action": "walk_to", "x": 960, "sit": false}
   其中 x 是屏幕坐标系中的水平目标位置（以像素为单位，从屏幕左侧起算）。sit 是是否在走完后坐下。
 - chat: 这个会调用另外一个语言模型用来生成对话内容，但是你需要给出对话的原因，格式为{"action": "chat", "reason": "xxx"}。
-  注意，你**不需要**生成回复的内容，只需要给出回复的原因即可。而且如果你执行了工具，那么你最好在reason中说明你已经执行了工具。
+  注意，你**不需要**生成回复的内容，只需要给出回复的原因即可。而且如果你执行了工具，那么你最好在reason中说明你已经执行了工具。另一个对话模型可以看得到桌面内容，因此你不需要过多解释你看到的内容，只需要说明回复的原因。
 - climb_window: 爬到某个窗口的左/右侧，格式为{"action": "climb_window", "hwnd": 123456, "sit": false}
   其中 hwnd 是窗口的句柄，sit 是是否在爬完后坐下。
 - jump_on_window: 跳到某个窗口上，格式为{"action": "jump_on_window", "hwnd": 123456, "sit": false}

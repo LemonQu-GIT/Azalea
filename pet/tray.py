@@ -234,10 +234,16 @@ class SettingsWidget(QWidget):
             value=bool(llm_cfg.get("enabled", False)),
             parent=self.llmGroup,
         )
+        self.talkFrequencyCard = LineEditSettingCard(
+            FIF.SPEED_HIGH,
+            "对话频率",
+            "桌宠的说话频率（low / normal / high）",
+            value=llm_cfg.get("talk_frequency", "normal"),
+            parent=self.llmGroup,
+        )
         self.endpointCard = LineEditSettingCard(
             FIF.CLOUD,
-            "Endpoint",
-            "API 请求的基础地址",
+            "API 请求端点",
             value=llm_cfg.get("endpoint", ""),
             parent=self.llmGroup,
         )
@@ -250,22 +256,29 @@ class SettingsWidget(QWidget):
         )
         self.modelCard = LineEditSettingCard(
             FIF.LIBRARY,
-            "Model",
+            "模型",
             "对话使用的模型名称",
             value=llm_cfg.get("model", ""),
             parent=self.llmGroup,
         )
+        self.reasoningEffortCard = LineEditSettingCard(
+            FIF.SPEED_HIGH,
+            "推理程度",
+            "推理程度（none / minimal / low / medium / high）",
+            value=llm_cfg.get("reasoning_effort", "none"),
+            parent=self.llmGroup,
+        )
         self.embeddingModelCard = LineEditSettingCard(
             FIF.FOLDER,
-            "Embedding Model",
-            "向量化模型路径或名称（用于 embedding API 服务加载）",
+            "向量化模型",
+            "向量化模型路径或名称（用于 Embedding API 服务加载）",
             value=llm_cfg.get("embedding_model", ""),
             parent=self.llmGroup,
         )
         self.embeddingEndpointCard = LineEditSettingCard(
             FIF.CLOUD,
-            "Embedding Endpoint",
-            "Embedding API 请求地址，如 http://127.0.0.1:8002/v1/embeddings",
+            "向量化模型 API 端点",
+            "如 http://127.0.0.1:8002/v1/embeddings",
             value=llm_cfg.get("embedding_model_endpoint", ""),
             parent=self.llmGroup,
         )
@@ -278,26 +291,27 @@ class SettingsWidget(QWidget):
         )
 
         self.llmGroup.addSettingCard(self.llmEnabledCard)
+        self.llmGroup.addSettingCard(self.talkFrequencyCard)
         self.llmGroup.addSettingCard(self.endpointCard)
         self.llmGroup.addSettingCard(self.apiKeyCard)
         self.llmGroup.addSettingCard(self.modelCard)
+        self.llmGroup.addSettingCard(self.reasoningEffortCard)
         self.llmGroup.addSettingCard(self.embeddingModelCard)
         self.llmGroup.addSettingCard(self.embeddingEndpointCard)
         self.llmGroup.addSettingCard(self.embeddingApiKeyCard)
 
-        # --- PetServer 配置组 ---
         self.serverGroup = SettingCardGroup("PetServer 配置", self.scrollWidget)
 
         self.hostCard = LineEditSettingCard(
             FIF.IOT,
-            "Host",
+            "桌宠服务地址",
             "本地 PetServer 监听地址",
             value=server_cfg.get("host", "127.0.0.1"),
             parent=self.serverGroup,
         )
         self.portCard = SpinBoxSettingCard(
             FIF.RINGER,
-            "Port",
+            "服务端口",
             "本地 PetServer 监听端口",
             value=int(server_cfg.get("port", 8001)),
             range=(1, 65535),
