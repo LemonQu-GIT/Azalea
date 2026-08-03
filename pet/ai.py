@@ -124,9 +124,9 @@ async def ai_brain_core(action: Actions | None = None):
                 schedule_run = None
 
             elif head_pat_triggered:
-                # 用户摸了摸桌宠的头：assembled_content 按要求写死
                 print(f"[Head Pat] 用户摸了摸桌宠的头。")
                 assembled_content = f"现在是 {now}。用户摸了摸桌宠的头。请根据截屏判断桌宠的行为。"
+                schedule_run = None
 
             elif schedule_run:
                 print(
@@ -197,8 +197,7 @@ async def ai_brain_core(action: Actions | None = None):
                                      "image_url": {"url": f"data:image/jpeg;base64,{pet.ai_utils.img2base64(chat_ss)}"}},
                                 ],
                             }
-                            chat_messages.append(
-                                chat_prompt)  # type:ignore
+                            chat_messages.append(chat_prompt)  # type:ignore
 
                             chat_reply = await _to_thread_kw(
                                 pet.tool_calling.run_llm_with_tools, chat_messages
@@ -221,21 +220,22 @@ async def ai_brain_core(action: Actions | None = None):
                                 new_memories = await _to_thread_kw(
                                     manager.generate_memories, mem_for, chat_reply
                                 )
-                                for mem in new_memories:
-                                    if isinstance(mem, dict):
-                                        mem_content = mem.get("content")
-                                        if mem_content is None:
-                                            continue
-                                        await _to_thread_kw(
-                                            manager.add_memory,
-                                            content=mem_content,
-                                            type=mem.get("type", "fact"),
-                                            importance=mem.get(
-                                                "importance", 5),
-                                        )
-                                        print(
-                                            f"[Memory Saved] 成功记录新的长期记忆: {mem_content}"
-                                        )
+                                if new_memories:
+                                    for mem in new_memories:
+                                        if isinstance(mem, dict):
+                                            mem_content = mem.get("content")
+                                            if mem_content is None:
+                                                continue
+                                            await _to_thread_kw(
+                                                manager.add_memory,
+                                                content=mem_content,
+                                                type=mem.get("type", "fact"),
+                                                importance=mem.get(
+                                                    "importance", 5),
+                                            )
+                                            print(
+                                                f"[Memory Saved] 成功记录新的长期记忆: {mem_content}"
+                                            )
                         elif task.get("action") == "schedule":
                             time_str = task.get("time")
                             content = task.get("content")

@@ -5,6 +5,7 @@ from datetime import datetime
 
 import numpy as np
 import faiss
+import requests
 from openai.types.chat import ChatCompletionMessageParam
 
 import pet.ai_utils
@@ -15,9 +16,9 @@ config = pet.ai_utils.config
 
 class MemoryManager:
     def __init__(self, path="./memory"):
-        from sentence_transformers import SentenceTransformer
         self.path = path
-        self.model = SentenceTransformer(config["llm"]["embedding_model"])
+        self.embedding_endpoint = config["llm"].get("embedding_model_endpoint")
+        self.embedding_api_key = config["llm"].get("embedding_model_key", "")
 
         self.memory_file = os.path.join(path, "memory.json")
         self.index_file = os.path.join(path, "index.faiss")
@@ -32,6 +33,36 @@ class MemoryManager:
 
         os.makedirs(path, exist_ok=True)
         self.load()
+
+    def get_embedding(self, text):
+        headers = {
+            "Content-Type": "application/json",
+        }
+        if self.embedding_api_key:
+            headers["Authorization"] = f"Bearer {self.embedding_api_key}"
+
+        payload = {
+            "input": text,
+            "model": "bge-small-zh-v1.5",
+        }
+
+        try:
+            response = requests.post(  # type: ignore
+                self.embedding_endpoint,
+                headers=headers,
+                json=payload,
+                timeout=60,
+            )
+            response.raise_for_status()
+            result = response.json()
+            if "data" in result and len(result["data"]) > 0:
+                return np.array(result["data"][0]["embedding"], dtype="float32")
+            else:
+                raise ValueError("Empty embedding response")
+        except Exception as e:
+            pet.utils.log(
+                f"Embedding API call failed: {e}", "ERROR", save=False)
+            raise
 
     def load(self):
         if os.path.exists(self.memory_file):
@@ -71,8 +102,7 @@ class MemoryManager:
         vectors = []
 
         for memory_id, memory in self.memories.items():
-            vector = self.model.encode(self.get_embedding_text(
-                memory), normalize_embeddings=True)
+            vector = self.get_embedding(self.get_embedding_text(memory))
             vectors.append(vector)
             self.id_map.append(memory_id)
 
@@ -100,8 +130,7 @@ class MemoryManager:
             "times_used": 0
         }
 
-        vector = self.model.encode(self.get_embedding_text(
-            memory), normalize_embeddings=True)
+        vector = self.get_embedding(self.get_embedding_text(memory))
         vector = np.array([vector], dtype="float32")
 
         if self.index is None:
@@ -128,7 +157,7 @@ class MemoryManager:
 {query}
 """
 
-        vector = self.model.encode(query, normalize_embeddings=True)
+        vector = self.get_embedding(query)
         vector = np.array([vector], dtype="float32")
 
         scores, ids = self.index.search(vector, top_k)

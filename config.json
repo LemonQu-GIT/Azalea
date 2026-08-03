@@ -65,6 +65,8 @@
         "api_key": "ollama",
         "model": "gemma4:31b-cloud",
         "embedding_model": "E:\\huggingface\\models--BAAI--bge-small-zh-v1.5\\snapshots\\7999e1d3359715c523056ef9478215996d62a620",
+        "embedding_model_endpoint": "http://127.0.0.1:8002/v1/embeddings",
+        "embedding_model_key": "embedding-api-key",
         "enabled": false
     },
     "petServer": {

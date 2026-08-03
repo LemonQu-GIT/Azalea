@@ -258,8 +258,22 @@ class SettingsWidget(QWidget):
         self.embeddingModelCard = LineEditSettingCard(
             FIF.FOLDER,
             "Embedding Model",
-            "向量化模型路径或名称",
+            "向量化模型路径或名称（用于 embedding API 服务加载）",
             value=llm_cfg.get("embedding_model", ""),
+            parent=self.llmGroup,
+        )
+        self.embeddingEndpointCard = LineEditSettingCard(
+            FIF.CLOUD,
+            "Embedding Endpoint",
+            "Embedding API 请求地址，如 http://127.0.0.1:8002/v1/embeddings",
+            value=llm_cfg.get("embedding_model_endpoint", ""),
+            parent=self.llmGroup,
+        )
+        self.embeddingApiKeyCard = PasswordLineEditSettingCard(
+            FIF.VPN,
+            "Embedding API Key",
+            "调用 Embedding API 时使用的认证密钥（可留空）",
+            value=llm_cfg.get("embedding_model_key", ""),
             parent=self.llmGroup,
         )
 
@@ -268,6 +282,8 @@ class SettingsWidget(QWidget):
         self.llmGroup.addSettingCard(self.apiKeyCard)
         self.llmGroup.addSettingCard(self.modelCard)
         self.llmGroup.addSettingCard(self.embeddingModelCard)
+        self.llmGroup.addSettingCard(self.embeddingEndpointCard)
+        self.llmGroup.addSettingCard(self.embeddingApiKeyCard)
 
         # --- PetServer 配置组 ---
         self.serverGroup = SettingCardGroup("PetServer 配置", self.scrollWidget)
@@ -359,15 +375,17 @@ class SettingsWidget(QWidget):
         api_key = self.apiKeyCard.value()
         model = self.modelCard.value()
         embedding_model = self.embeddingModelCard.value()
+        embedding_endpoint = self.embeddingEndpointCard.value()
+        embedding_api_key = self.embeddingApiKeyCard.value()
         enabled = self.llmEnabledCard.value()
         host = self.hostCard.value()
         port = self.portCard.value()
 
         if enabled:
-            if not all([endpoint, api_key, model, embedding_model]):
+            if not all([endpoint, api_key, model, embedding_model, embedding_endpoint]):
                 self._show_dialog(
                     "保存失败",
-                    "启用 LLM 后，请先填写完整的 LLM 配置。",
+                    "启用 LLM 后，请先填写完整的 LLM 配置（包括 Embedding Endpoint）。",
                 )
                 return
         if not host:
@@ -383,6 +401,8 @@ class SettingsWidget(QWidget):
                 "api_key": api_key,
                 "model": model,
                 "embedding_model": embedding_model,
+                "embedding_model_endpoint": embedding_endpoint,
+                "embedding_model_key": embedding_api_key,
                 "enabled": enabled,
             }
         )

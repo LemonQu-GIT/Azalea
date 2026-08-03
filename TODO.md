@@ -32,3 +32,7 @@
 08-02 thoughts
 
 * [ ] 不应该是停止拖拽桌宠就立刻播放idle动画，应该是一直播放formation pickup直到落地/碰撞
+
+08-03 thoughts
+
+* [X] 不应该把sentence transformers那个model和pet写在一起，应该新开一个sentence_api.py的fastapi代码单独运行
