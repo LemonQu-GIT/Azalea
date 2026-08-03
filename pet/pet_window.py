@@ -450,6 +450,11 @@ class PetWindow(QWidget):
         self._HEAD_PAT_MAX_HOLD_MS: int = 6000
         self._head_pat_started_at: float = 0.0
 
+        # 拖拽结束后等待落地再播放end_drag动画
+        self._waiting_for_land_after_drag: bool = False
+        self._drag_end_wait_started_at: float = 0.0
+        self._DRAG_END_MAX_WAIT_SEC: float = 5.0  # 超时保护：最多等5秒
+
         emitter.click_through_changed.connect(self.set_click_through)
         emitter.model_hit_tested.connect(self.handle_model_hit_tested)
 
@@ -559,6 +564,10 @@ class PetWindow(QWidget):
         self._move_qt_window_to_body()
         self.tracker.update_temporary_topmost()
         self._cleanup_timed_out_actions()
+
+        # 拖拽结束后：等待落地再播放end_drag动画
+        if self._waiting_for_land_after_drag:
+            self._check_drag_end_and_play_anim()
 
     def _move_qt_window_to_body(self):
         gx, gy = self.physics.body.position
@@ -1515,6 +1524,37 @@ class PetWindow(QWidget):
 
         ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
 
+    def _check_drag_end_and_play_anim(self) -> None:
+        """检查拖拽结束后桌宠是否已落地，是则播放end_drag动画。"""
+        gx, gy = self.physics.body.position
+        vx, vy = self.physics.body.velocity
+        speed_sq = vx * vx + vy * vy
+        _, _, _, bottom = self.physics.bounds
+        floor_y = bottom - COLLISION_HEIGHT / 2
+
+        # 超时保护：超过最大等待时长直接播放
+        timeout = (
+            time.monotonic() - self._drag_end_wait_started_at
+            > self._DRAG_END_MAX_WAIT_SEC
+        )
+
+        # 判定落地：
+        # 1) tracker已检测到落在某个平台/容器顶部
+        tracker_landed = (
+            self.tracker.active_platform_hwnd is not None
+            or self.tracker.active_container_hwnd is not None
+        )
+        # 2) 碰到屏幕底部（地面）
+        touched_floor = abs(gy - floor_y) < 6.0
+        # 3) 速度足够小（已经稳定，不是弹跳中的瞬时接触）
+        low_speed = speed_sq < 180.0 * 180.0
+
+        landed = (tracker_landed and low_speed) or (touched_floor and low_speed)
+
+        if landed or timeout:
+            self._waiting_for_land_after_drag = False
+            self.play_end_drag_anim()
+
     def play_end_drag_anim(self):
         _send_command_threadsafe(
             {
@@ -1599,7 +1639,10 @@ class PetWindow(QWidget):
         self.window_drag_active = False
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.tracker.set_drag_topmost(False)
-        self.play_end_drag_anim()
+
+        # 标记等待落地后再播放end_drag动画（而不是一松手就播放）
+        self._waiting_for_land_after_drag = True
+        self._drag_end_wait_started_at = time.monotonic()
 
     def handle_global_mouse_press(self, x, y):
         window_rect = self.frameGeometry()

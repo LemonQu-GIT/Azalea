@@ -31,7 +31,7 @@
 
 08-02 thoughts
 
-* [ ] 不应该是停止拖拽桌宠就立刻播放idle动画，应该是一直播放formation pickup直到落地/碰撞
+* [X] 不应该是停止拖拽桌宠就立刻播放idle动画，应该是一直播放formation pickup直到落地/碰撞
 
 08-03 thoughts
 
