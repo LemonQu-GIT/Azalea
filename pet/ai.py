@@ -127,6 +127,13 @@ async def ai_brain_core(action: Actions | None = None):
             # 全部统一进入 control_reply 大脑决策，不再绕过大脑
             if user_triggered and this_round_user_msg:
                 no_respond_loops = 0
+                if config['llm']['talk_frequency'] == "low":
+                    SLEEP_TIME = 20
+                elif config['llm']['talk_frequency'] == "high":
+                    SLEEP_TIME = 5
+                else:
+                    SLEEP_TIME = 10
+
                 user_text = this_round_user_msg
                 pet.utils.log(f"处理主动消息：{user_text}", "INFO")
                 assembled_content = f"现在是 {now}。用户主动对桌宠发消息，消息内容为：\n'''{user_text}'''\n请根据截屏判断桌宠的行为。"
@@ -134,6 +141,13 @@ async def ai_brain_core(action: Actions | None = None):
 
             elif head_pat_triggered:
                 no_respond_loops = 0
+                if config['llm']['talk_frequency'] == "low":
+                    SLEEP_TIME = 20
+                elif config['llm']['talk_frequency'] == "high":
+                    SLEEP_TIME = 5
+                else:
+                    SLEEP_TIME = 10
+
                 pet.utils.log(f"处理摸头事件www", "INFO")
                 assembled_content = f"现在是 {now}。用户摸了摸桌宠的头。请根据截屏判断桌宠的行为。"
                 schedule_run = None
