@@ -9,6 +9,7 @@
 ## 功能特性
 
 ### 对话与智能
+
 - **大模型接入**：兼容 OpenAI API 格式
 - **Tool Calling**：所有使用的 Tools 如下
   - `get_windows_list` — 获取当前所有可见窗口列表
@@ -26,6 +27,7 @@
 GPT-SoVITS Model by [**@SLNeil**](https://space.bilibili.com/523537077)
 
 ### API 接口
+
 - FastAPI 提供 HTTP + WebSocket 接口
 - 支持通过 API 控制模型的位置、旋转、缩放、动画播放
 - 支持 `local` / `global` 两种旋转坐标系
@@ -47,7 +49,7 @@ GPT-SoVITS Model by [**@SLNeil**](https://space.bilibili.com/523537077)
 ### 1. 克隆项目
 
 ```bash
-git clone ？？？
+git clone https://github.com/LemonQu-GIT/Azalea.git
 cd Azalea
 ```
 
@@ -109,13 +111,13 @@ python tts_api.py
 
 ### 基本操作
 
-| 操作 | 说明 |
-|------|------|
-| **左键拖拽** | 移动桌宠，松开后按物理规律扔出 |
-| **头部区域右键按住滑动** | 摸头 |
-| **右键桌宠** | 打开对话界面 |
+| 操作                           | 说明                               |
+| ------------------------------ | ---------------------------------- |
+| **左键拖拽**             | 移动桌宠，松开后按物理规律扔出     |
+| **头部区域右键按住滑动** | 摸头                               |
+| **右键桌宠**             | 打开对话界面                       |
 | **右键托盘图标 → 设置** | 打开设置界面（LLM / TTS / 主题等） |
-| **右键托盘图标 → 退出** | 关闭应用 |
+| **右键托盘图标 → 退出** | 关闭应用                           |
 
 ## 安全说明
 
