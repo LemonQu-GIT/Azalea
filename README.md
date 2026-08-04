@@ -2,8 +2,6 @@
 
 > DesktopPet for all students in Kivotos
 
-一个基于 Python + Three.js 的交互式 3D 桌面宠物应用，内置 AI 对话、物理交互、工具调用等丰富功能。
-
 ---
 
 ## 功能特性

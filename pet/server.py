@@ -17,16 +17,10 @@ import pet.utils
 config = pet.utils.loadConfig()
 
 
-# 全局用户消息队列：对话框 -> ai_brain_core
-# 每一项是用户消息文本字符串
 user_message_queue: asyncio.Queue[str] = asyncio.Queue()
 
-# 全局摸头事件队列：窗口手势检测 -> ai_brain_core
-# 每一项是 True（表示一次"摸了头"事件），内容字符串由 ai 侧拼 assembled_content
 head_pat_queue: asyncio.Queue[bool] = asyncio.Queue()
 
-# 全局 AI 回复队列：ai_brain_core -> 对话框前端
-# 每一项是回复内容字符串
 ai_reply_queue: asyncio.Queue[str] = asyncio.Queue()
 
 chat_ws_connections: list[WebSocket] = []
@@ -74,7 +68,7 @@ async def get_chat(request: Request):
     return templates.TemplateResponse("chat.html", {"request": request})
 
 
-@app.get("/three.module.js")
+'''@app.get("/three.module.js")
 async def get_three_module():
     return FileResponse("front/three.module.js", media_type="application/javascript")
 
@@ -82,6 +76,7 @@ async def get_three_module():
 @app.get("/three.core.js")
 async def get_three_core():
     return FileResponse("front/three.core.js", media_type="application/javascript")
+'''
 
 
 @app.get("/model.glb")
