@@ -53,7 +53,7 @@ git clone https://github.com/LemonQu-GIT/Azalea.git
 cd Azalea
 ```
 
-### 2. 安装依赖
+### 2. 安装依赖 (uv)
 
 * 若所有的 API (TTS, Embedding) 都在云端：
 
@@ -101,7 +101,7 @@ python tts_api.py
 
 启动后：
 
-- 桌面会出现桌宠透明窗口
+- 桌面会出现桌宠窗口
 - 系统托盘出现 Azalea 图标，右键可打开设置或对话
 - 默认 API 服务运行在 `http://127.0.0.1:8001`
 

@@ -195,6 +195,7 @@ class SettingsWidget(QWidget):
 
         self.config = loadConfig()
         llm_cfg = self.config["llm"]
+        tts_cfg = self.config.setdefault("tts", {})
         server_cfg = self.config["petServer"]
 
         # --- UI 外观组 ---
@@ -321,10 +322,93 @@ class SettingsWidget(QWidget):
         self.serverGroup.addSettingCard(self.hostCard)
         self.serverGroup.addSettingCard(self.portCard)
 
-        # ---- 结构：外层 QWidget → 内层 ScrollArea（内容，可滚）+ Footer（保存按钮，常驻底部） ----
-        # 理由：保存按钮必须常驻视口底部，不能滚出去，也不能被窗口下边缘截断。
+        # --- TTS 配置组 ---
+        self.ttsGroup = SettingCardGroup("TTS 语音配置", self.scrollWidget)
 
-        # 内层 ScrollArea 承载所有 SettingCardGroup（self.scrollWidget = expandLayout 的宿主）
+        self.ttsEnabledCard = SwitchSettingCard(
+            FIF.VOLUME,
+            "启用 TTS",
+            "是否启用文本转语音播报功能",
+            value=bool(tts_cfg.get("enabled", True)),
+            parent=self.ttsGroup,
+        )
+        self.ttsEndpointCard = LineEditSettingCard(
+            FIF.CLOUD,
+            "TTS 服务端点",
+            "TTS HTTP 服务地址，如 http://127.0.0.1:8003",
+            value=tts_cfg.get("endpoint", "http://127.0.0.1:8003"),
+            parent=self.ttsGroup,
+        )
+        self.ttsHostCard = LineEditSettingCard(
+            FIF.IOT,
+            "TTS 监听地址",
+            "本地 TTS 服务绑定地址",
+            value=tts_cfg.get("host", "127.0.0.1"),
+            parent=self.ttsGroup,
+        )
+        self.ttsPortCard = SpinBoxSettingCard(
+            FIF.RINGER,
+            "TTS 服务端口",
+            "本地 TTS 服务监听端口",
+            value=int(tts_cfg.get("port", 8003)),
+            range=(1, 65535),
+            parent=self.ttsGroup,
+        )
+        self.ttsCharacterCard = LineEditSettingCard(
+            FIF.HEART,
+            "角色名称",
+            "使用的 TTS 角色/说话人名称",
+            value=tts_cfg.get("character_name", "WeiHua"),
+            parent=self.ttsGroup,
+        )
+        self.ttsLanguageCard = LineEditSettingCard(
+            FIF.LANGUAGE,
+            "语言",
+            "合成语言（如 zh / en / ja）",
+            value=tts_cfg.get("language", "zh"),
+            parent=self.ttsGroup,
+        )
+        self.ttsGenieDirCard = LineEditSettingCard(
+            FIF.FOLDER,
+            "Genie 数据目录",
+            "GenieData 资源目录路径",
+            value=tts_cfg.get("genie_data_dir", "./data/GenieData"),
+            parent=self.ttsGroup,
+        )
+        self.ttsOnnxDirCard = LineEditSettingCard(
+            FIF.FOLDER,
+            "ONNX 模型目录",
+            "ONNX 模型资源目录路径",
+            value=tts_cfg.get("onnx_model_dir", "./data/onnx_mika"),
+            parent=self.ttsGroup,
+        )
+        self.ttsRefAudioCard = LineEditSettingCard(
+            FIF.MUSIC,
+            "参考音频路径",
+            "用于风格迁移的参考音频文件路径",
+            value=tts_cfg.get("reference_audio_path",
+                              "./data/onnx_mika/reference_audio/mika_normal.wav"),
+            parent=self.ttsGroup,
+        )
+        self.ttsRefTextCard = LineEditSettingCard(
+            FIF.EDIT,
+            "参考音频文本",
+            "参考音频对应的文字内容",
+            value=tts_cfg.get("reference_audio_text", ""),
+            parent=self.ttsGroup,
+        )
+
+        self.ttsGroup.addSettingCard(self.ttsEnabledCard)
+        self.ttsGroup.addSettingCard(self.ttsEndpointCard)
+        self.ttsGroup.addSettingCard(self.ttsHostCard)
+        self.ttsGroup.addSettingCard(self.ttsPortCard)
+        self.ttsGroup.addSettingCard(self.ttsCharacterCard)
+        self.ttsGroup.addSettingCard(self.ttsLanguageCard)
+        self.ttsGroup.addSettingCard(self.ttsGenieDirCard)
+        self.ttsGroup.addSettingCard(self.ttsOnnxDirCard)
+        self.ttsGroup.addSettingCard(self.ttsRefAudioCard)
+        self.ttsGroup.addSettingCard(self.ttsRefTextCard)
+
         innerScroll = ScrollArea(self)
         innerScroll.setWidget(self.scrollWidget)
         innerScroll.setWidgetResizable(True)
@@ -339,7 +423,31 @@ class SettingsWidget(QWidget):
             }
         """)
 
-        # --- 保存按钮（Footer 区域，固定在视口最下方） ---
+        self.topMask = QWidget(self)
+        self.topMask.setObjectName("topMask")
+        self.topMask.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.topMask.setStyleSheet("""
+            #topMask {
+                background-color: transparent;
+            }
+        """)
+        self.topMask.raise_()
+
+        def _update_mask_color():
+            if themeCfg.themeMode.value == Theme.DARK:
+                self.topMask.setStyleSheet(
+                    "#topMask { background-color: #202020; }")
+            elif themeCfg.themeMode.value == Theme.LIGHT:
+                self.topMask.setStyleSheet(
+                    "#topMask { background-color: #fafafa; }")
+            else:
+                self.topMask.setStyleSheet(
+                    "#topMask { background-color: palette(window); }")
+        _update_mask_color()
+        themeCfg.themeMode.valueChanged.connect(
+            lambda ci: _update_mask_color())
+
         self.saveButton = PrimaryPushButton("保存配置", self)
         self.saveButton.setFixedHeight(40)
         self.saveButton.setFixedWidth(180)
@@ -356,7 +464,6 @@ class SettingsWidget(QWidget):
         footerLayout.addWidget(self.saveButton)
         footer.setStyleSheet("background: transparent;")
 
-        # ---- 外层布局 ----
         outerLayout = QVBoxLayout(self)
         outerLayout.setContentsMargins(0, 0, 0, 0)
         outerLayout.setSpacing(0)
@@ -368,10 +475,23 @@ class SettingsWidget(QWidget):
         self.expandLayout.addWidget(self.settingLabel)
         self.expandLayout.addWidget(self.uiGroup)
         self.expandLayout.addWidget(self.llmGroup)
+        self.expandLayout.addWidget(self.ttsGroup)
         self.expandLayout.addWidget(self.serverGroup)
 
+    def _update_top_mask_geometry(self):
+        title_bar_height = 40
+        self.topMask.setGeometry(0, 0, self.width(), title_bar_height)
+        self.topMask.raise_()
+
+    def resizeEvent(self, a0):
+        super().resizeEvent(a0)
+        self._update_top_mask_geometry()
+
+    def showEvent(self, a0):
+        super().showEvent(a0)
+        self._update_top_mask_geometry()
+
     def _show_dialog(self, title: str, content: str):
-        """参考 examples/dialog_flyout/dialog/demo.py 的 Dialog 用法。"""
         w = Dialog(title, content, self)
         try:
             yes_btn = w.yesButton
@@ -395,6 +515,17 @@ class SettingsWidget(QWidget):
         host = self.hostCard.value()
         port = self.portCard.value()
 
+        tts_enabled = self.ttsEnabledCard.value()
+        tts_endpoint = self.ttsEndpointCard.value()
+        tts_host = self.ttsHostCard.value()
+        tts_port = self.ttsPortCard.value()
+        tts_character = self.ttsCharacterCard.value()
+        tts_language = self.ttsLanguageCard.value()
+        tts_genie_dir = self.ttsGenieDirCard.value()
+        tts_onnx_dir = self.ttsOnnxDirCard.value()
+        tts_ref_audio = self.ttsRefAudioCard.value()
+        tts_ref_text = self.ttsRefTextCard.value()
+
         if enabled:
             if not all([endpoint, api_key, model, embedding_model, embedding_endpoint]):
                 self._show_dialog(
@@ -406,6 +537,12 @@ class SettingsWidget(QWidget):
             self._show_dialog(
                 "保存失败",
                 "PetServer 的 host 不能为空。",
+            )
+            return
+        if tts_enabled and not tts_endpoint:
+            self._show_dialog(
+                "保存失败",
+                "启用 TTS 后，请先填写 TTS 服务端点。",
             )
             return
 
@@ -421,6 +558,20 @@ class SettingsWidget(QWidget):
             }
         )
         self.config["petServer"].update({"host": host, "port": port})
+        self.config.setdefault("tts", {}).update(
+            {
+                "enabled": tts_enabled,
+                "endpoint": tts_endpoint,
+                "host": tts_host,
+                "port": tts_port,
+                "character_name": tts_character,
+                "language": tts_language,
+                "genie_data_dir": tts_genie_dir,
+                "onnx_model_dir": tts_onnx_dir,
+                "reference_audio_path": tts_ref_audio,
+                "reference_audio_text": tts_ref_text,
+            }
+        )
 
         saveConfig(self.config)
 
