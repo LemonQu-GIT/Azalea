@@ -63,7 +63,7 @@ class ThemeConfig(QConfig):
 
 
 _theme_cfg_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), os.pardir, "theme.json")
+    os.path.join(os.path.dirname(__file__), os.pardir, "./configs/theme.json")
 )
 themeCfg = ThemeConfig()
 themeCfg.themeMode.value = Theme.AUTO

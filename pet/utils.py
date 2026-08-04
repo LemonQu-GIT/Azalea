@@ -9,7 +9,7 @@ console = Console()
 
 
 def _config_path() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "config.json"))
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "./configs/config.json"))
 
 
 def loadConfig() -> dict:

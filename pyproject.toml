@@ -5,14 +5,13 @@ description = "DesktopPet for all students in Kivotos"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "beautifulsoup4",
-    "faiss>=1.5.3",
-    "fastapi==0.141.1",
+    "fastapi",
     "numpy",
     "openai",
     "Pillow",
     "pyautogui",
     "pydantic",
+    "simpleaudio",
     "pyglet",
     "pymunk",
     "pynput",
@@ -22,6 +21,7 @@ dependencies = [
     "pywin32",
     "Requests",
     "rich",
-    "sentence_transformers",
-    "uvicorn>=0.52.1"
+    "uvicorn>=0.52.1",
 ]
+[project.optional-dependencies]
+local = ["genie-tts", "sentence-transformers", "faiss-cpu"]

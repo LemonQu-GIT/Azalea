@@ -1,0 +1,90 @@
+{
+    "3dmodel": {
+        "animations": [
+            "CH0069_Formation_Idle",
+            "CH0069_Victory_Start",
+            "CH0069_Kneel_Reload",
+            "CH0069_Kneel_Attack_Ing",
+            "CH0069_Normal_Attack_Delay",
+            "CH0069_Move_End_Kneel",
+            "CH0069_Formation_Pickup",
+            "CH0069_Normal_Idle",
+            "CH0069_Normal_Attack_Ing",
+            "CH0069_Move_End_Normal",
+            "CH0069_Normal_Attack_End",
+            "CH0069_Victory_End",
+            "CH0069_Cafe_Walk",
+            "CH0069_Normal_Reload",
+            "CH0069_Exs",
+            "CH0069_Victory_End_Random",
+            "CH0069_Normal_Callsign",
+            "CH0069_Vital_Dying_Ing",
+            "CH0069_Victory_Start_Random",
+            "CH0069_Kneel_Attack_End",
+            "CH0069_Cafe_Reaction",
+            "CH0069_Move_Ing",
+            "CH0069_Vital_Panic",
+            "CH0069_Cutin_Mesh",
+            "CH0069_Kneel_Idle",
+            "CH0069_Vital_Death",
+            "CH0069_Normal_Attack_Start",
+            "CH0069_Kneel_Attack_Start",
+            "CH0069_Public01",
+            "CH0069_Vital_Retreat",
+            "CH0069_Normal_Reload_Random",
+            "CH0069_Exs_Cutin_Barbara",
+            "CH0069_Move_Jump",
+            "CH0069_Exs_Cutin",
+            "CH0069_Exs_Cutin_Cam",
+            "CH0069_my_event15_teapartytable",
+            "CH0069_Cafe_Idle",
+            "CH0069_Kneel_Attack_Delay"
+        ]
+    },
+    "window": {
+        "title": "Azalea Pet",
+        "size": {
+            "width": 405,
+            "height": 450
+        },
+        "collision_offset": {
+            "left": 166,
+            "right": 155,
+            "top": 154,
+            "bottom": 111
+        },
+        "physics": {
+            "step_seconds": 0.016666666666666666,
+            "gravity": 3300,
+            "max_throw_speed": 8000,
+            "wall_bounce": 0.5
+        }
+    },
+    "llm": {
+        "talk_frequency": "normal",
+        "endpoint": "http://localhost:11434/v1/",
+        "api_key": "ollama",
+        "model": "gemma4:31b-cloud",
+        "reasoning_effort": "none",
+        "embedding_model": "E:\\huggingface\\models--BAAI--bge-small-zh-v1.5\\snapshots\\7999e1d3359715c523056ef9478215996d62a620",
+        "embedding_model_endpoint": "http://127.0.0.1:8002/v1/embeddings",
+        "embedding_model_key": "embedding-api-key",
+        "enabled": true
+    },
+    "tts": {
+        "enabled": true,
+        "endpoint": "http://127.0.0.1:8003",
+        "genie_data_dir": "./data/GenieData",
+        "character_name": "WeiHua",
+        "onnx_model_dir": "./data/onnx_mika",
+        "language": "zh",
+        "reference_audio_path": "./data/onnx_mika/reference_audio/mika_normal.wav",
+        "reference_audio_text": "圣园未花，终于登场啦！是这种感觉吧？啊？以我和老师的关系就不需要再破冰了吧。以后就请多多关照啦！",
+        "host": "127.0.0.1",
+        "port": 8003
+    },
+    "petServer": {
+        "host": "127.0.0.1",
+        "port": 8001
+    }
+}

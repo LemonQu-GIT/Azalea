@@ -30,6 +30,8 @@ class SignalEmitter(QObject):
     model_right_clicked = pyqtSignal(int, int)
     # 桌宠被摸头：触发时不带参，由 ai 侧直接读 assembled_content
     pet_head_patted = pyqtSignal()
+    # 请求播放 TTS 音频 (wav 文件路径)
+    play_tts_requested = pyqtSignal(str)
 
 
 emitter = SignalEmitter()

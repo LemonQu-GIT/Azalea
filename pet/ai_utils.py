@@ -1,5 +1,6 @@
 import warnings
 import openai
+import requests
 import json
 import base64
 from PIL import Image
@@ -14,6 +15,7 @@ import pet.pet_api as pet_api
 import pet.windows_utils
 import pet.utils
 import pet.tool_calling
+from pet.signals import emitter
 
 
 client = pet.tool_calling.client
@@ -403,8 +405,56 @@ def save_context(context: list, fn: str):
         json.dump(context, f, ensure_ascii=False, indent=4)
 
 
-def generate_tts(text):
-    pass
+def generate_tts(
+    text: str,
+    character_name: str | None = config['tts']['character_name'],
+    save_path: str | None = None,
+    language: str | None = config['tts']['language'],
+    base_url: str = config['tts']['endpoint']
+) -> bytes:
+    # 我真笑死了，这个未花的tts声线怎么感觉跟橘雪莉一模一样
+    if not text:
+        raise ValueError("text must not be empty")
+
+    headers = {"Content-Type": "application/json"}
+    url = f"{base_url}/v1/tts"
+    payload = {"text": text}
+    if character_name:
+        payload["character_name"] = character_name
+    if language:
+        payload["language"] = language
+
+    try:
+        resp = requests.post(  # type: ignore
+            url,
+            headers=headers,
+            json=payload,
+            timeout=300,
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to connect to TTS API at {base_url}: {e}") from e
+
+    if resp.status_code != 200:
+        detail = resp.text
+        try:
+            detail = resp.json().get("detail", detail)
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"TTS synthesis failed (HTTP {resp.status_code}): {detail}")
+
+    audio_bytes = resp.content
+
+    if save_path:
+        with open(save_path, "wb") as f:
+            f.write(audio_bytes)
+
+    return audio_bytes
+
+
+def play_tts(audio_path: str = "./data/audio.wav"):
+    emitter.play_tts_requested.emit(audio_path)
 
 
 control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用户当前的状态判断桌宠的行为。

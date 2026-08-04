@@ -5,6 +5,7 @@ import functools
 import traceback
 import pyautogui
 from datetime import datetime
+
 from openai.types.chat import ChatCompletionMessageParam
 
 import pet.utils
@@ -246,6 +247,8 @@ async def ai_brain_core(action: Actions | None = None):
                             if chat_reply:
                                 reply_text = str(chat_reply)
                                 task["reply_text"] = reply_text
+                                if config['tts']['enabled']:
+                                    await asyncio.to_thread(pet.ai_utils.generate_tts, reply_text, save_path="./data/audio.wav")
                                 if user_triggered and this_round_user_msg:
                                     mem_for = this_round_user_msg
                                 else:
@@ -267,6 +270,7 @@ async def ai_brain_core(action: Actions | None = None):
                                         )
                                         pet.utils.log(
                                             f"新记忆已添加: {mem_content}", "INFO")
+
                     for task in control_reply_json:
                         if task.get("action") == "chat":
                             last_activity_time = now_time
@@ -275,6 +279,8 @@ async def ai_brain_core(action: Actions | None = None):
                                 continue
                             duration = max(10.0, len(reply_text) * 0.1)
                             await action.show_message(reply_text, duration=duration)
+                            if config['tts']['enabled']:
+                                pet.ai_utils.play_tts()
                             await _push_ai_reply(reply_text)
                         elif task.get("action") == "schedule":
                             time_str = task.get("time")
