@@ -80,7 +80,7 @@ def cmd_run(command: str) -> str:
 AVAILABLE_FUNCTIONS = {
     "get_windows_list": get_windows_list,
     "keyboard_input": keyboard_input,
-    "cmd_run": cmd_run
+    "cmd_run": cmd_run  # this is unsafe
 }
 
 tools = [
@@ -133,7 +133,7 @@ tools = [
 ]
 
 
-def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 15, reasoning_effort: str = config['llm']['reasoning_effort']) -> str:
+def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 30, reasoning_effort: str = config['llm']['reasoning_effort']) -> str:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     for _ in range(max_iterations):
         response = client.chat.completions.create(

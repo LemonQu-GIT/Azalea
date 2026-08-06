@@ -1,5 +1,6 @@
 import warnings
 import openai
+from openai.types.chat.chat_completion import ChatCompletion
 import requests
 import json
 import base64
@@ -303,13 +304,15 @@ def img2base64(img: np.ndarray | Image.Image) -> str:
     return base64.b64encode(img_buffer.read()).decode('utf-8')
 
 
-def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = config['llm']['reasoning_effort']) -> str | None:
+def generate_response(messages: list[ChatCompletionMessageParam], reasoning_effort: str = config['llm']['reasoning_effort'], debug: bool = False) -> ChatCompletion | str | None:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     response = client.chat.completions.create(
         model=config['llm']['model'],
         messages=messages,
         reasoning_effort=reasoning_effort,  # type: ignore
     )
+    if debug:
+        return response
     if response.choices:
         return response.choices[0].message.content
     else:
@@ -322,7 +325,7 @@ def remove_image(messages: list[ChatCompletionMessageParam]):
             for i, part in enumerate(msg["content"]):  # type:ignore
                 if isinstance(part, dict) and part.get("type") == "image_url":
                     del msg["content"][i]  # type:ignore
-                    return
+    return
 
 
 def truncate_context(
@@ -466,7 +469,8 @@ control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用
   其中 distance 是像素距离，sit 是是否在走完后坐下。
 - walk_to: 走到屏幕指定的x坐标，格式为{"action": "walk_to", "x": 960, "sit": false}
   其中 x 是屏幕坐标系中的水平目标位置（以像素为单位，从屏幕左侧起算）。sit 是是否在走完后坐下。
-- chat: 这个会调用另外一个语言模型用来生成对话内容，但是你需要给出对话的原因，格式为{"action": "chat", "reason": "xxx"}。
+- chat: 这个会调用另外一个语言模型用来生成对话内容，但是你需要给出对话的原因，格式为{"action": "chat", "reason": "xxx", "info": ["XXX", "XXX"]}。
+  其中 reason 是你生成对话的原因，info 是你认为为了对话而需要知道的记忆内容，例如["用户编程经验", "用户使用的技术栈"]，如果你觉得没有需要知道的记忆内容，你可以给出空列表[]。
   注意，你**不需要**生成回复的内容，只需要给出回复的原因即可。而且如果你执行了工具，那么你最好在reason中说明你已经执行了工具。另一个对话模型可以看得到桌面内容，因此你不需要过多解释你看到的内容，只需要说明回复的原因。
 - climb_window: 爬到某个窗口的左/右侧，格式为{"action": "climb_window", "hwnd": 123456, "sit": false}
   其中 hwnd 是窗口的句柄，sit 是是否在爬完后坐下。
@@ -485,7 +489,7 @@ control_sys_prompt = '''你现在是一个AI桌宠的大脑，你需要根据用
 注意，你的键盘输入行为可能会打断用户的操作，所以你需要谨慎使用。如果是想说话的话请使用chat指令，而不是键盘输入。
 你需要根据用户的状态和行为来判断桌宠的行为，尽量让桌宠的行为看起来像是有生命的，具有一定的情绪和个性。
 你需要返回一个JSON列表，每个元素是一个行为，示例如下：
-[{"action": "chat", "reason": "用户在发送微信消息"}, {"action": "walk", "distance": -10}]
+[{"action": "chat", "reason": "用户在写代码", "info": ["用户编程经验", "用户正在开发的项目"]}, {"action": "walk", "distance": -10}]
 若你觉得没有需要执行的行为，你可以返回空列表[]。
 你直接输出JSON即可，不需要任何额外的解释或文本，也不需要使用markdown代码块或是用```json标记。
 '''

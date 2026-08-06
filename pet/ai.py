@@ -197,16 +197,17 @@ async def ai_brain_core(action: Actions | None = None):
                     for task in control_reply_json:
                         if task.get("action") == "chat":
                             reason = task.get("reason", "")
+                            info = task.get("info", [])
 
                             if user_triggered and this_round_user_msg:
                                 pet.utils.log(
-                                    f"正在处理用户消息，原因: {reason}", "EVENT")
+                                    f"正在处理用户消息，原因: {reason} {'记忆：' if info else ''}{', '.join(info)}", "EVENT")
                             else:
                                 pet.utils.log(
-                                    f"正在处理对话任务，原因: {reason}", "EVENT")
+                                    f"正在处理对话任务，原因: {reason} {'记忆：' if info else ''}{', '.join(info)}", "EVENT")
 
                             retrieved_mems = await _to_thread_kw(
-                                manager.retrieve_for_chat, reason
+                                manager.retrieve_for_chat, info
                             )
                             if retrieved_mems:
                                 mem_text = "\n".join(
@@ -390,6 +391,15 @@ async def ai_brain_core(action: Actions | None = None):
             pending_head_pat = _get_head_pat_nowait()
 
 
+async def demo(action: Actions):
+    await asyncio.sleep(10)
+    await action.jump_into_window(18943082)
+    await action.show_message("老师要写什么啊，要我帮忙吗？", duration=5)
+    await asyncio.sleep(8)
+    await action.sit()
+    await action.show_message("我就静静坐在这里看老师写吧。", duration=5)
+
+
 async def ai_brain_loop():
     global _active_window
 
@@ -403,6 +413,7 @@ async def ai_brain_loop():
             else:
                 pet.utils.log(
                     "LLM 未启用，跳过 AI 决策执行", "INFO", save=False)
+                await demo(action)
                 while not config['llm']['enabled']:
                     await asyncio.sleep(60)
         except asyncio.CancelledError:

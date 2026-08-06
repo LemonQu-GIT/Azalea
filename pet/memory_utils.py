@@ -199,33 +199,7 @@ class MemoryManager:
         if self.index:
             faiss.write_index(self.index, self.index_file)
 
-    def retrieve_for_chat(self, user_input):
-        router_prompt = """你是AI桌宠的记忆检索模块。
-根据AI大脑当前输入，判断回答时需要哪些长期用户信息。
-注意：由于AI桌宠是《蔚蓝档案》中的角色，因此会把用户称作“老师”。因此“老师”实际是指用户本人。你可能需要把所有的“老师”换成“用户”。
-只输出JSON列表。
-例如：
-AI大脑：
-帮我写一个Python程序
-输出：["用户编程经验", "用户使用的技术栈"]
-如果不需要记忆：[]
-不要输出解释。"""
-        messages = [
-            {
-                "role": "system",
-                "content": router_prompt
-            },
-            {
-                "role": "user",
-                "content": user_input
-            }
-        ]
-
-        reply = pet.ai_utils.generate_response(
-            messages)
-        if not reply:
-            return []
-        queries = pet.ai_utils.format_response(reply)
+    def retrieve_for_chat(self, queries: list[str]):
         if not isinstance(queries, list):
             return []
         result = []

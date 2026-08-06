@@ -72,7 +72,7 @@
         "enabled": false
     },
     "tts": {
-        "enabled": true,
+        "enabled": false,
         "endpoint": "http://127.0.0.1:8003",
         "genie_data_dir": "./data/GenieData",
         "character_name": "WeiHua",

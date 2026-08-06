@@ -34,7 +34,7 @@ def log(content: str, eventType: str, show: bool = True, save: bool = True):
         back_lineno = "Unknown"
     now = datetime.now()
     time = now.strftime("%Y-%m-%d %H:%M:%S")
-    logger = f"[{time}] <{back_filename}:{back_lineno}> <{back_funcname}()> {eventType}: {content}"
+    logger = f"[{time}] <{back_filename}:{back_lineno}> <{back_funcname}()> {eventType}: {content.strip()}"
     if eventType.lower() == "info":
         style = "green"
     elif eventType.lower() == "error":
