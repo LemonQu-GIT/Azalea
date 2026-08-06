@@ -47,6 +47,7 @@ from qfluentwidgets import (
     SubtitleLabel,
     setFont,
 )
+import darkdetect
 
 from pet.utils import loadConfig, saveConfig
 from pet.windows_utils import get_windows_theme_color
@@ -607,7 +608,8 @@ class SettingsWindow(SplitFluentWindow):
 
     def initWindow(self):
         self.setWindowTitle("桌宠设置")
-        self.setWindowIcon(QIcon('./front/icon.png'))
+        self.setWindowIcon(QIcon(
+            './front/icon_light' if themeCfg.themeMode.value == Theme.LIGHT else './front/icon_dark'))
         self._center_window()
 
     def _center_window(self):
@@ -632,7 +634,8 @@ class SystemTray(QSystemTrayIcon):
         super().__init__(parent)
         self.pet_window = pet_window
 
-        self.setIcon(QIcon("./front/icon.png"))
+        self.setIcon(QIcon('./front/icon_light' if themeCfg.themeMode.value ==
+                     Theme.LIGHT else './front/icon_dark'))
         self.setToolTip("AI 桌宠")
 
         menu = QMenu()

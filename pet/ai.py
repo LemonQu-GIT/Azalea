@@ -391,15 +391,6 @@ async def ai_brain_core(action: Actions | None = None):
             pending_head_pat = _get_head_pat_nowait()
 
 
-async def demo(action: Actions):
-    await asyncio.sleep(10)
-    await action.jump_into_window(18943082)
-    await action.show_message("老师要写什么啊，要我帮忙吗？", duration=5)
-    await asyncio.sleep(8)
-    await action.sit()
-    await action.show_message("我就静静坐在这里看老师写吧。", duration=5)
-
-
 async def ai_brain_loop():
     global _active_window
 
@@ -413,7 +404,6 @@ async def ai_brain_loop():
             else:
                 pet.utils.log(
                     "LLM 未启用，跳过 AI 决策执行", "INFO", save=False)
-                await demo(action)
                 while not config['llm']['enabled']:
                     await asyncio.sleep(60)
         except asyncio.CancelledError:
