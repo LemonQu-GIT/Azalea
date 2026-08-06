@@ -364,7 +364,7 @@ async def ai_brain_core(action: Actions | None = None):
 
         sleep_broken_by_user = False
 
-        SLEEP_TIME += (no_respond_loops // 3) * 5
+        SLEEP_TIME += (no_respond_loops // 4) * 5
 
         for _ in range(SLEEP_TIME):
             now_time = time.time()
