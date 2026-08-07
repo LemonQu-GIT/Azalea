@@ -44,14 +44,22 @@ GPT-SoVITS Model by [**@SLNeil**](https://space.bilibili.com/523537077)
 
 ## 快速开始
 
-### 1. 克隆项目
+### 使用启动 / 部署脚本
+
+```bash
+python run_project.py
+```
+
+### 手动部署
+
+#### 1. 克隆项目
 
 ```bash
 git clone https://github.com/LemonQu-GIT/Azalea.git
 cd Azalea
 ```
 
-### 2. 安装依赖 (uv)
+#### 2. 安装依赖 (uv)
 
 * 若所有的 API (TTS, Embedding) 都在云端：
 
@@ -67,7 +75,7 @@ uv sync
 uv sync --extra local
 ```
 
-### 3. 配置文件
+#### 3. 配置文件
 
 复制示例配置并按需要修改：
 
@@ -77,7 +85,7 @@ copy configs\config.example.json configs\config.json
 
 编辑 `configs\config.json`，至少填入 **LLM 配置**（endpoint、api_key、model）
 
-### 4. 启动应用
+#### 4. 启动应用
 
 主程序：
 

@@ -5,7 +5,10 @@ description = "DesktopPet for all students in Kivotos"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "modelscope",
     "fastapi",
+    "Jinja2",
+    "starlette>=1.0.0",
     "numpy",
     "openai",
     "Pillow",
@@ -17,6 +20,7 @@ dependencies = [
     "pynput",
     "PyQt6",
     "pyqt6_fluent_widgets",
+    "PyQt6-WebEngine",
     "pyqt6_sip",
     "pywin32",
     "Requests",

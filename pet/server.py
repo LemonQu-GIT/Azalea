@@ -1,7 +1,9 @@
 import asyncio
 import json
 import traceback
+from typing import Any
 
+import starlette
 import uvicorn
 from fastapi import FastAPI, WebSocket, Request, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -13,6 +15,7 @@ from pet.signals import emitter
 from pet.websocketm import ws_manager
 from pet.ai import ai_brain_loop
 import pet.utils
+
 
 config = pet.utils.loadConfig()
 
@@ -58,14 +61,15 @@ async def get_index(request: Request):
     host = request.url.netloc
     ws_url = f"{scheme}://{host}/ws"
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {"request": request, "ws_url": ws_url}
+        {"ws_url": ws_url},
     )
 
 
 @app.get("/chat")
 async def get_chat(request: Request):
-    return templates.TemplateResponse("chat.html", {"request": request})
+    return templates.TemplateResponse(request, "chat.html", {})
 
 
 '''@app.get("/three.module.js")
