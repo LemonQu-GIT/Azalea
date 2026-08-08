@@ -18,9 +18,22 @@ def load_config():
         return json.load(f)
 
 
+def load_references(config):
+    references_path = os.path.abspath(os.path.join(
+        os.path.dirname(__file__),
+        config['tts']['onnx_model_dir'],
+        "reference_audio",
+        "reference.json",
+    ))
+    if not os.path.isfile(references_path):
+        return {}
+    with open(references_path, "r", encoding="utf8") as f:
+        return json.load(f)
+
+
 config = load_config()
 tts_config = config.get("tts", {})
-
+tts_references = load_references(config)
 if tts_config.get("genie_data_dir"):
     os.environ["GENIE_DATA_DIR"] = os.path.abspath(
         tts_config["genie_data_dir"])
@@ -79,13 +92,16 @@ def get_genie():
                 detail=f"Failed to import genie_tts: {str(e)}"
             )
     if not _character_loaded:
-        character_name = tts_config.get("character_name", "WeiHua")
-        onnx_model_dir = os.path.abspath(tts_config.get(
-            "onnx_model_dir", "./data/onnx_mika"))
-        language = tts_config.get("language", "zh")
-        ref_audio_path = os.path.abspath(tts_config.get(
-            "reference_audio_path", "./data/onnx_mika/reference_audio/mika_normal.wav"))
-        ref_audio_text = tts_config.get("reference_audio_text", "")
+        character_name = tts_references["character_name"]
+        onnx_model_dir = os.path.abspath(tts_config.get("onnx_model_dir"))
+        language = tts_config.get("language")
+        ref_audio_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__),
+            config['tts']['onnx_model_dir'],
+            "reference_audio",
+            tts_references["languages"][language]["path"],
+        ))
+        ref_audio_text = tts_references["languages"][language]["text"]
 
         try:
             _genie.load_character(

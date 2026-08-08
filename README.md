@@ -24,6 +24,8 @@
 
 GPT-SoVITS Model by [**@SLNeil**](https://space.bilibili.com/523537077)
 
+若希望生成的语音为日语，请在设置中将 TTS 语言设置为 `jp`
+
 ### API 接口
 
 - FastAPI 提供 HTTP + WebSocket 接口

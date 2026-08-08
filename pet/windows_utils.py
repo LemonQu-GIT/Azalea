@@ -170,7 +170,10 @@ def transformWindow(hwnd: int, x: int | None = None, y: int | None = None, width
             width = rect.right - rect.left
         if height is None:
             height = rect.bottom - rect.top
-        win32gui.MoveWindow(hwnd, x, y, width, height, True)
+        try:
+            win32gui.MoveWindow(hwnd, x, y, width, height, True)
+        except Exception as e:
+            pass
         return
     raise ValueError("Failed to get window rect for hwnd: {}".format(hwnd))
 

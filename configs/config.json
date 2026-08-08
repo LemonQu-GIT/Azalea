@@ -69,17 +69,14 @@
         "embedding_model": "./data/bge-small-zh-v1.5",
         "embedding_model_endpoint": "http://127.0.0.1:8002/v1/embeddings",
         "embedding_model_key": "embedding-api-key",
-        "enabled": true
+        "enabled": false
     },
     "tts": {
-        "enabled": true,
+        "enabled": false,
         "endpoint": "http://127.0.0.1:8003",
         "genie_data_dir": "./data/GenieData",
-        "character_name": "WeiHua",
-        "onnx_model_dir": "./data/onnx_mika",
-        "language": "zh",
-        "reference_audio_path": "./data/onnx_mika/reference_audio/mika_normal.wav",
-        "reference_audio_text": "圣园未花，终于登场啦！是这种感觉吧？啊？以我和老师的关系就不需要再破冰了吧。以后就请多多关照啦！",
+        "onnx_model_dir": "./data/tts_model",
+        "language": "jp",
         "host": "127.0.0.1",
         "port": 8003
     },

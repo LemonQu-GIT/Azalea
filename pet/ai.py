@@ -249,7 +249,10 @@ async def ai_brain_core(action: Actions | None = None):
                                 reply_text = str(chat_reply)
                                 task["reply_text"] = reply_text
                                 if config['tts']['enabled']:
-                                    await asyncio.to_thread(pet.ai_utils.generate_tts, reply_text, save_path="./data/audio.wav")
+                                    if config["tts"]['language'] == "jp":
+                                        reply_text = await _to_thread_kw(pet.ai_utils.translate_jp, reply_text)
+                                    await asyncio.to_thread(pet.ai_utils.generate_tts,
+                                                            reply_text, save_path="./data/audio.wav")  # type:ignore
                                 if user_triggered and this_round_user_msg:
                                     mem_for = this_round_user_msg
                                 else:

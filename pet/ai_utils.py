@@ -408,9 +408,24 @@ def save_context(context: list, fn: str):
         json.dump(context, f, ensure_ascii=False, indent=4)
 
 
+def translate_jp(text: str) -> str:
+    if not text:
+        return ""
+
+    prompt = f"请将以下中文文本翻译为日文：\n{text}。请你直接输出翻译结果，不要输出任何解释或其他内容。"
+    ans = generate_response(
+        messages=[
+            {"role": "system", "content": "你是一个中文翻译助手。"},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    if ans is None:
+        return ""
+    return str(ans)
+
+
 def generate_tts(
     text: str,
-    character_name: str | None = config['tts']['character_name'],
     save_path: str | None = None,
     language: str | None = config['tts']['language'],
     base_url: str = config['tts']['endpoint']
@@ -422,8 +437,6 @@ def generate_tts(
     headers = {"Content-Type": "application/json"}
     url = f"{base_url}/v1/tts"
     payload = {"text": text}
-    if character_name:
-        payload["character_name"] = character_name
     if language:
         payload["language"] = language
 

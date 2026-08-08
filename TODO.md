@@ -30,9 +30,9 @@
 08-03 thoughts
 
 * [X] 不应该把sentence transformers那个model和pet写在一起，应该新开一个sentence_api.py的fastapi代码单独运行
-* [ ] 给环境最好加上一键运行的脚本
+* [X] 给环境最好加上一键运行的脚本
 * [X] 若用户长时间不回应，那么延长brain loop中的SLEEP time时间，同时添加AI检测用户回复率的脚本，如果长时间不回复那么自己主动延长SLEEP时间。用户也可以设置桌宠是偏向于说话还是观察
-* [ ] 使用uv管理项目
+* [X] 使用uv管理项目
 
 08-05 thoughts
 

@@ -355,17 +355,10 @@ class SettingsWidget(QWidget):
             range=(1, 65535),
             parent=self.ttsGroup,
         )
-        self.ttsCharacterCard = LineEditSettingCard(
-            FIF.HEART,
-            "角色名称",
-            "使用的 TTS 角色/说话人名称",
-            value=tts_cfg.get("character_name", "WeiHua"),
-            parent=self.ttsGroup,
-        )
         self.ttsLanguageCard = LineEditSettingCard(
             FIF.LANGUAGE,
             "语言",
-            "合成语言（如 zh / en / ja）",
+            "合成语言（如 zh / jp）",
             value=tts_cfg.get("language", "zh"),
             parent=self.ttsGroup,
         )
@@ -383,32 +376,14 @@ class SettingsWidget(QWidget):
             value=tts_cfg.get("onnx_model_dir", "./data/onnx_mika"),
             parent=self.ttsGroup,
         )
-        self.ttsRefAudioCard = LineEditSettingCard(
-            FIF.MUSIC,
-            "参考音频路径",
-            "用于风格迁移的参考音频文件路径",
-            value=tts_cfg.get("reference_audio_path",
-                              "./data/onnx_mika/reference_audio/mika_normal.wav"),
-            parent=self.ttsGroup,
-        )
-        self.ttsRefTextCard = LineEditSettingCard(
-            FIF.EDIT,
-            "参考音频文本",
-            "参考音频对应的文字内容",
-            value=tts_cfg.get("reference_audio_text", ""),
-            parent=self.ttsGroup,
-        )
 
         self.ttsGroup.addSettingCard(self.ttsEnabledCard)
         self.ttsGroup.addSettingCard(self.ttsEndpointCard)
         self.ttsGroup.addSettingCard(self.ttsHostCard)
         self.ttsGroup.addSettingCard(self.ttsPortCard)
-        self.ttsGroup.addSettingCard(self.ttsCharacterCard)
         self.ttsGroup.addSettingCard(self.ttsLanguageCard)
         self.ttsGroup.addSettingCard(self.ttsGenieDirCard)
         self.ttsGroup.addSettingCard(self.ttsOnnxDirCard)
-        self.ttsGroup.addSettingCard(self.ttsRefAudioCard)
-        self.ttsGroup.addSettingCard(self.ttsRefTextCard)
 
         innerScroll = ScrollArea(self)
         innerScroll.setWidget(self.scrollWidget)
@@ -520,12 +495,9 @@ class SettingsWidget(QWidget):
         tts_endpoint = self.ttsEndpointCard.value()
         tts_host = self.ttsHostCard.value()
         tts_port = self.ttsPortCard.value()
-        tts_character = self.ttsCharacterCard.value()
         tts_language = self.ttsLanguageCard.value()
         tts_genie_dir = self.ttsGenieDirCard.value()
         tts_onnx_dir = self.ttsOnnxDirCard.value()
-        tts_ref_audio = self.ttsRefAudioCard.value()
-        tts_ref_text = self.ttsRefTextCard.value()
 
         if enabled:
             if not all([endpoint, api_key, model, embedding_model, embedding_endpoint]):
@@ -565,12 +537,9 @@ class SettingsWidget(QWidget):
                 "endpoint": tts_endpoint,
                 "host": tts_host,
                 "port": tts_port,
-                "character_name": tts_character,
                 "language": tts_language,
                 "genie_data_dir": tts_genie_dir,
                 "onnx_model_dir": tts_onnx_dir,
-                "reference_audio_path": tts_ref_audio,
-                "reference_audio_text": tts_ref_text,
             }
         )
 

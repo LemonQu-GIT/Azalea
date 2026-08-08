@@ -193,8 +193,6 @@ def install_dependencies():
         print("模型 tts_model 已存在，跳过下载。")
     config['tts']['onnx_model_dir'] = os.path.abspath(
         os.path.join(DATA_DIR, "tts_model"))
-    config['tts']['reference_audio_path'] = os.path.abspath(
-        os.path.join(DATA_DIR, "tts_model", "reference_audio", "mika_normal.wav"))
 
     print("正在配置LLM服务...")
     endpoint, api_key, model = config_llm()
