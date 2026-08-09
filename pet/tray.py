@@ -3,6 +3,7 @@ import socket
 import subprocess
 import sys
 import time
+import json
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QIcon
@@ -302,6 +303,36 @@ class SettingsWidget(QWidget):
         self.llmGroup.addSettingCard(self.embeddingEndpointCard)
         self.llmGroup.addSettingCard(self.embeddingApiKeyCard)
 
+        # --- 工具配置组 ---
+        self.toolsGroup = SettingCardGroup("LLM 工具配置", self.scrollWidget)
+        self.tool_cards = {}
+        tools_cfg = llm_cfg.setdefault("tools", {})
+
+        tools_json_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__),
+                         os.pardir, "./configs/tools.json")
+        )
+        try:
+            with open(tools_json_path, "r", encoding="utf-8") as f:
+                tools_def = json.load(f)
+        except Exception:
+            tools_def = []
+
+        for tool_def in tools_def:
+            tool_name = tool_def["function"]["name"]
+            tool_desc = tool_def["function"]["description"]
+            tool_enabled = bool(tools_cfg.get(tool_name, True))
+
+            tool_card = SwitchSettingCard(
+                FIF.ROBOT,
+                tool_name,
+                tool_desc,
+                value=tool_enabled,
+                parent=self.toolsGroup,
+            )
+            self.tool_cards[tool_name] = tool_card
+            self.toolsGroup.addSettingCard(tool_card)
+
         self.serverGroup = SettingCardGroup("PetServer 配置", self.scrollWidget)
 
         self.hostCard = LineEditSettingCard(
@@ -451,6 +482,7 @@ class SettingsWidget(QWidget):
         self.expandLayout.addWidget(self.settingLabel)
         self.expandLayout.addWidget(self.uiGroup)
         self.expandLayout.addWidget(self.llmGroup)
+        self.expandLayout.addWidget(self.toolsGroup)
         self.expandLayout.addWidget(self.ttsGroup)
         self.expandLayout.addWidget(self.serverGroup)
 
@@ -519,6 +551,11 @@ class SettingsWidget(QWidget):
             )
             return
 
+        # 构建工具配置字典
+        tools_config = {}
+        for tool_name, tool_card in self.tool_cards.items():
+            tools_config[tool_name] = tool_card.value()
+
         self.config["llm"].update(
             {
                 "endpoint": endpoint,
@@ -528,6 +565,7 @@ class SettingsWidget(QWidget):
                 "embedding_model_endpoint": embedding_endpoint,
                 "embedding_model_key": embedding_api_key,
                 "enabled": enabled,
+                "tools": tools_config,
             }
         )
         self.config["petServer"].update({"host": host, "port": port})

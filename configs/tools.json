@@ -1,0 +1,52 @@
+[
+    {
+        "type": "function",
+        "function": {
+            "name": "get_windows_list",
+            "description": "获取当前所有窗口的列表",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "keyboard_input",
+            "description": "模拟键盘输入",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "要输入的文本"
+                    }
+                },
+                "required": [
+                    "text"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cmd_run",
+            "description": "运行系统命令并返回输出",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "要执行的系统命令，命令将在Windows的cmd环境中执行。"
+                    }
+                },
+                "required": [
+                    "command"
+                ]
+            }
+        }
+    }
+]

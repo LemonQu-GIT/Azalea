@@ -69,7 +69,12 @@
         "embedding_model": "./data/bge-small-zh-v1.5",
         "embedding_model_endpoint": "http://127.0.0.1:8002/v1/embeddings",
         "embedding_model_key": "embedding-api-key",
-        "enabled": false
+        "enabled": false,
+        "tools": {
+            "get_windows_list": true,
+            "keyboard_input": true,
+            "cmd_run": true
+        }
     },
     "tts": {
         "enabled": false,

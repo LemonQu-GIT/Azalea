@@ -77,60 +77,22 @@ def cmd_run(command: str) -> str:
         return f"[Exception] {str(e)}"
 
 
+with open("./configs/tools.json", "r", encoding="utf-8") as f:
+    available_tools = json.load(f)
+
+tools_enabled_config = config["llm"].get("tools", {})
+enabled_tools = []
+for tool_def in available_tools:
+    tool_name = tool_def["function"]["name"]
+    if tools_enabled_config.get(tool_name, True):
+        enabled_tools.append(tool_def)
+
+
 AVAILABLE_FUNCTIONS = {
     "get_windows_list": get_windows_list,
     "keyboard_input": keyboard_input,
     "cmd_run": cmd_run  # this is unsafe
 }
-
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_windows_list",
-            "description": "获取当前所有窗口的列表",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "keyboard_input",
-            "description": "模拟键盘输入",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "要输入的文本"
-                    }
-                },
-                "required": ["text"]
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "cmd_run",
-            "description": "运行系统命令并返回输出",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "要执行的系统命令，命令将在Windows的cmd环境中执行。"
-                    }
-                },
-                "required": ["command"]
-            },
-        },
-    }
-]
 
 
 def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 30, reasoning_effort: str = config['llm']['reasoning_effort']) -> str:
@@ -139,7 +101,7 @@ def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = 
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            tools=tools,  # type:ignore
+            tools=enabled_tools,
             tool_choice="auto",
             reasoning_effort=reasoning_effort,  # type: ignore
         )
@@ -155,11 +117,16 @@ def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = 
             func_name = tool_call.function.name  # type:ignore
             pet.utils.log(f"模型正在调用工具: {func_name}", "INFO")
             try:
-                func_args = json.loads(
-                    tool_call.function.arguments)  # type:ignore
-                func_to_call = AVAILABLE_FUNCTIONS[func_name]
-                func_response = func_to_call(**func_args)
-                pet.utils.log(f"工具 {func_name} 执行结果: {func_response}", "INFO")
+                if not tools_enabled_config.get(func_name, True):
+                    func_response = f"[Tool Disabled] 工具 {func_name} 已被禁用，无法调用。"
+                    pet.utils.log(f"工具 {func_name} 被禁用，调用被阻止", "WARNING")
+                else:
+                    func_args = json.loads(
+                        tool_call.function.arguments)  # type:ignore
+                    func_to_call = AVAILABLE_FUNCTIONS[func_name]
+                    func_response = func_to_call(**func_args)
+                    pet.utils.log(
+                        f"工具 {func_name} 执行结果: {func_response}", "INFO")
             except Exception as e:
                 func_response = json.dumps({"error": str(e)})
                 pet.utils.log(f"工具调用错误: {e}", "ERROR")
