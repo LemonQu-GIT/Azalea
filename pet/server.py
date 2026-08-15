@@ -16,6 +16,17 @@ from pet.websocketm import ws_manager
 from pet.ai import ai_brain_loop
 import pet.utils
 import pet.i18n
+import pet.pet_api as pet_api
+
+
+# /render_config 的兜底默认值，需要和 front/index.html 里的
+# DEFAULT_LIGHT_CONFIG 保持一致——仅在 configs/config.json 缺少
+# 3dmodel.light 字段时使用。
+DEFAULT_LIGHT_CONFIG = {
+    "directional_intensity": 1.4,
+    "ambient_intensity": 0.9,
+    "ambient_warmth": 35,
+}
 
 
 config = pet.utils.loadConfig()
@@ -65,12 +76,17 @@ async def get_index(request: Request):
         request,
         "index.html",
         {"ws_url": ws_url},
+        # QtWebEngine 会把无验证器的响应按启发式缓存，改前端后旧页面
+        # 可能继续被渲染，调试/更新时极难察觉，禁止缓存
+        headers={"Cache-Control": "no-store"},
     )
 
 
 @app.get("/chat")
 async def get_chat(request: Request):
-    return templates.TemplateResponse(request, "chat.html", {})
+    return templates.TemplateResponse(
+        request, "chat.html", {},
+        headers={"Cache-Control": "no-store"})
 
 
 '''@app.get("/three.module.js")
@@ -95,6 +111,34 @@ async def get_i18n():
         "language": pet.i18n.get_language(),
         "catalog": pet.i18n.get_catalog(),
     })
+
+
+@app.get("/render_config")
+async def get_render_config():
+    """前端 3D 场景启动时拉取的渲染配置（目前只有光照）。"""
+    fconfig = pet.utils.loadConfig()
+    light_cfg = {
+        **DEFAULT_LIGHT_CONFIG,
+        **fconfig.get("3dmodel", {}).get("light", {}),
+    }
+    return JSONResponse({"light": light_cfg})
+
+
+class SetLightRequest(BaseModel):
+    directional_intensity: float | None = None
+    ambient_intensity: float | None = None
+    ambient_warmth: float | None = None
+
+
+@app.post("/set_light")
+async def set_light_post(req: SetLightRequest):
+    """设置窗口调整光照滑块时调用：实时把新值推给正在运行的桌宠 3D 场景。"""
+    await pet_api.set_light(
+        directional_intensity=req.directional_intensity,
+        ambient_intensity=req.ambient_intensity,
+        ambient_warmth=req.ambient_warmth,
+    )
+    return JSONResponse({"ok": True})
 
 
 class ChatSendRequest(BaseModel):

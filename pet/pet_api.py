@@ -49,6 +49,25 @@ async def play_animation(name: str, loop: bool = True, fade_duration: float = 0.
     )
 
 
+async def set_light(
+    directional_intensity: float | None = None,
+    ambient_intensity: float | None = None,
+    ambient_warmth: float | None = None,
+):
+    command: dict = {"command": "set_light"}
+
+    if directional_intensity is not None:
+        command["directional_intensity"] = directional_intensity
+
+    if ambient_intensity is not None:
+        command["ambient_intensity"] = ambient_intensity
+
+    if ambient_warmth is not None:
+        command["ambient_warmth"] = ambient_warmth
+
+    await ws_manager.broadcast(command)
+
+
 async def set_model_transform(
     scale: tuple[float, float, float] | None = None,
     rotation: tuple[float, float, float] | None = None,

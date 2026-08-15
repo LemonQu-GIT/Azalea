@@ -5,6 +5,8 @@ import sys
 import time
 import json
 
+import requests
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
@@ -34,6 +36,7 @@ from qfluentwidgets import (
     ScrollArea,
     SettingCard,
     SettingCardGroup,
+    Slider,
     SpinBox,
     SwitchButton,
     Theme,
@@ -133,6 +136,27 @@ class SpinBoxSettingCard(SettingCard):
         self.spinBox.setValue(int(value))
 
 
+class SliderSettingCard(SettingCard):
+    """带滑块的设置卡片，用于连续取值（如光照强度/色温）。"""
+
+    def __init__(self, icon, title, content=None, value=0,
+                 range=(0, 100), parent=None):
+        super().__init__(icon, title, content, parent)
+        self.slider = Slider(self)
+        self.slider.setOrientation(Qt.Orientation.Horizontal)
+        self.slider.setRange(*range)
+        self.slider.setValue(int(value))
+        self.slider.setFixedWidth(160)
+        self.hBoxLayout.addWidget(self.slider, 0, Qt.AlignmentFlag.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def value(self) -> int:
+        return self.slider.value()
+
+    def setValue(self, value: int):
+        self.slider.setValue(int(value))
+
+
 class SwitchSettingCard(SettingCard):
 
     def __init__(self, icon, title, content=None, value=False, parent=None):
@@ -150,6 +174,16 @@ class SwitchSettingCard(SettingCard):
 
     def setValue(self, value: bool):
         self.switchButton.setChecked(bool(value))
+
+
+# 与 pet/server.py 的 DEFAULT_LIGHT_CONFIG / front/index.html 的
+# DEFAULT_LIGHT_CONFIG 保持一致，仅用于 configs/config.json 缺少
+# 3dmodel.light 字段时的兜底显示值。
+_DEFAULT_LIGHT_CONFIG = {
+    "directional_intensity": 1.4,
+    "ambient_intensity": 0.9,
+    "ambient_warmth": 35,
+}
 
 
 def _find_free_tcp_port() -> int:
@@ -417,6 +451,51 @@ class SettingsWidget(QWidget):
         self.ttsGroup.addSettingCard(self.ttsGenieDirCard)
         self.ttsGroup.addSettingCard(self.ttsOnnxDirCard)
 
+        # --- 光照配置组 ---
+        # 与其它设置不同：这三个滑块不走"保存配置"按钮，改完立刻生效
+        # （持久化到 config + 实时推送给正在运行的桌宠），见 _apply_light_setting。
+        light_cfg = {
+            **_DEFAULT_LIGHT_CONFIG,
+            **self.config.get("3dmodel", {}).get("light", {}),
+        }
+        self.lightGroup = SettingCardGroup(t("光照设置"), self.scrollWidget)
+
+        self.directionalIntensityCard = SliderSettingCard(
+            FIF.BRIGHTNESS,
+            t("光源强度"),
+            t("调整右上方模拟光源的强度"),
+            value=round(light_cfg["directional_intensity"] * 100),
+            range=(0, 300),
+            parent=self.lightGroup,
+        )
+        self.ambientIntensityCard = SliderSettingCard(
+            FIF.BRIGHTNESS,
+            t("环境光强度"),
+            t("调整环境光的整体亮度"),
+            value=round(light_cfg["ambient_intensity"] * 100),
+            range=(0, 200),
+            parent=self.lightGroup,
+        )
+        self.ambientWarmthCard = SliderSettingCard(
+            FIF.BRIGHTNESS,
+            t("环境光色温"),
+            t("调整环境光的暖色程度（数值越大越暖）"),
+            value=round(light_cfg["ambient_warmth"]),
+            range=(0, 100),
+            parent=self.lightGroup,
+        )
+
+        self.directionalIntensityCard.slider.valueChanged.connect(
+            lambda v: self._apply_light_setting("directional_intensity", v / 100.0))
+        self.ambientIntensityCard.slider.valueChanged.connect(
+            lambda v: self._apply_light_setting("ambient_intensity", v / 100.0))
+        self.ambientWarmthCard.slider.valueChanged.connect(
+            lambda v: self._apply_light_setting("ambient_warmth", v))
+
+        self.lightGroup.addSettingCard(self.directionalIntensityCard)
+        self.lightGroup.addSettingCard(self.ambientIntensityCard)
+        self.lightGroup.addSettingCard(self.ambientWarmthCard)
+
         innerScroll = ScrollArea(self)
         innerScroll.setWidget(self.scrollWidget)
         innerScroll.setWidgetResizable(True)
@@ -485,6 +564,7 @@ class SettingsWidget(QWidget):
         self.expandLayout.addWidget(self.llmGroup)
         self.expandLayout.addWidget(self.toolsGroup)
         self.expandLayout.addWidget(self.ttsGroup)
+        self.expandLayout.addWidget(self.lightGroup)
         self.expandLayout.addWidget(self.serverGroup)
 
     def _update_top_mask_geometry(self):
@@ -512,6 +592,29 @@ class SettingsWidget(QWidget):
         except Exception:
             pass
         w.exec()
+
+    def _apply_light_setting(self, key: str, value: float):
+        """光照滑块拖动时调用：立刻持久化到 config 并推送给正在运行的桌宠。
+
+        跟其它设置卡片不同，这里不等"保存配置"按钮——每次改动都直接生效。
+        """
+        config = loadConfig()
+        light_cfg = config.setdefault("3dmodel", {}).setdefault("light", {})
+        light_cfg[key] = value
+        saveConfig(config)
+        self._post_light_update({key: value})
+
+    def _post_light_update(self, payload: dict):
+        server_cfg = loadConfig().get("petServer", {})
+        host = server_cfg.get("host", "127.0.0.1")
+        port = server_cfg.get("port", 8001)
+        try:
+            requests.post(
+                f"http://{host}:{port}/set_light", json=payload, timeout=1.0)
+        except requests.exceptions.RequestException:
+            # 桌宠主进程可能还没启动/暂时不可达：只影响这一次的实时预览，
+            # 值已经写进了 config，下次启动依然会用新的光照参数。
+            pass
 
     def save_config(self):
         endpoint = self.endpointCard.value()

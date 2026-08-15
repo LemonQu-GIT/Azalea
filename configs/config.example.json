@@ -40,7 +40,12 @@
             "CH0069_my_event15_teapartytable",
             "CH0069_Cafe_Idle",
             "CH0069_Kneel_Attack_Delay"
-        ]
+        ],
+        "light": {
+            "directional_intensity": 1.4,
+            "ambient_intensity": 0.9,
+            "ambient_warmth": 35
+        }
     },
     "window": {
         "title": "Azalea Pet",
