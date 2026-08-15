@@ -67,6 +67,7 @@ dependencies = [
     { name = "simpleaudio", marker = "sys_platform == 'win32'" },
     { name = "starlette" },
     { name = "uvicorn" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -103,6 +104,7 @@ requires-dist = [
     { name = "simpleaudio", marker = "sys_platform == 'win32'" },
     { name = "starlette", specifier = ">=1.0.0" },
     { name = "uvicorn", specifier = ">=0.52.1" },
+    { name = "websockets" },
 ]
 provides-extras = ["local"]
 

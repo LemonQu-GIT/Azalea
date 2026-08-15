@@ -27,6 +27,7 @@ dependencies = [
     "Requests",
     "rich",
     "uvicorn>=0.52.1",
+    "websockets",
 ]
 [project.optional-dependencies]
 local = ["genie-tts", "sentence-transformers", "faiss-cpu"]

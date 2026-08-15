@@ -405,6 +405,8 @@ def load_context(fn: str) -> list:
 
 
 def save_context(context: list, fn: str):
+    import os
+    os.makedirs("./memory", exist_ok=True)
     with open(f"./memory/{fn}.json", 'w', encoding='utf-8') as f:
         json.dump(context, f, ensure_ascii=False, indent=4)
 

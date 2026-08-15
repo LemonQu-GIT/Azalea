@@ -1747,18 +1747,65 @@ class PetWindow(QWidget):
         self._waiting_for_land_after_drag = True
         self._drag_end_wait_started_at = time.monotonic()
 
+    def _is_point_in_input_region(self, x: int, y: int) -> bool:
+        """屏幕坐标是否落在静态输入区域（模型身体框）内。"""
+        rx, ry, rw, rh = self._model_input_region_rect()
+        left = self.x() + rx
+        top = self.y() + ry
+        return left <= x < left + rw and top <= y < top + rh
+
+    def _pointer_is_on_model(self, x: int, y: int) -> bool:
+        """判断这个屏幕坐标算不算"点在桌宠身上"。
+
+        static-region 模式下，落在输入区域内本身就是充分证据：X 会把这个
+        区域内的点击派发给我们，区域外的点击根本不会到达。不能只依赖
+        _is_recently_over_model()——命中测试是异步的，指针停住不动时状态
+        会在 0.25s 后过期，那样"悬停一会儿再按下"就拖不动了。
+        """
+        if self._is_recently_over_model():
+            return True
+        if pet.platform_utils.CLICK_THROUGH_MODE == "static-region":
+            return self._is_point_in_input_region(x, y)
+        return False
+
+    def _note_global_pointer_position(self, x: int, y: int) -> None:
+        """用全局指针位置维护 pointer_over_model（static-region 模式）。
+
+        Linux/XWayland 上 Qt 的 eventFilter 拿不到桌宠窗口的鼠标事件
+        （webView.focusProxy() 在 __init__ 时还是 None，事件过滤器装不上
+        真正收事件的那个内部控件），而 QCursor.pos() 在 Wayland 会话下又是
+        陈旧值。pynput 的全局事件流是这里唯一可靠的指针来源。
+        """
+        if pet.platform_utils.CLICK_THROUGH_MODE != "static-region":
+            return
+
+        if not self._is_point_in_input_region(x, y):
+            self.pointer_over_model = False
+            return
+
+        now = time.monotonic()
+        self.pointer_over_model = True
+        self.last_model_hit_at = now
+
+        # 命中测试要走 websocket，这里限流到和 Windows 那个 30ms 轮询同样的节奏
+        if now - self._last_local_hit_request_at < 0.03:
+            return
+        self._last_local_hit_request_at = now
+        _request_hit_test(int(x) - self.x(), int(y) - self.y())
+
     def handle_global_mouse_press(self, x, y):
         window_rect = self.frameGeometry()
         if not window_rect.contains(QPoint(x, y)):
             return
 
-        if not self._is_recently_over_model():
+        if not self._pointer_is_on_model(x, y):
             return
 
         self._last_left_pressed = True
         self._start_physics_drag(x, y)
 
     def handle_global_mouse_move(self, x, y):
+        self._note_global_pointer_position(x, y)
         self._move_physics_drag(x, y)
 
     def handle_global_mouse_release(self, x, y):
