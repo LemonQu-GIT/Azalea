@@ -302,7 +302,9 @@
                 // 这里把采样窗口平移到一个自然的默认口型上
                 if (toonMat.map) {
                   toonMat.map = toonMat.map.clone();
-                  toonMat.map.offset.set(0.125, 0.25);
+                  // (0.125, 0) = 图集第 2 列同一行：张口微笑（开心表情）。
+                  // (0.125, 0.25) 是惊讶张嘴，(0.375/0.5, 0) 是"o"型嘴
+                  toonMat.map.offset.set(0.125, 0.0);
                   toonMat.map.needsUpdate = true;
                 }
               }
