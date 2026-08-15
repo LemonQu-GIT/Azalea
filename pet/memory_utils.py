@@ -116,10 +116,16 @@ class MemoryManager:
         self.id_map = []
         vectors = []
 
-        for memory_id, memory in self.memories.items():
-            vector = self.get_embedding(self.get_embedding_text(memory))
-            vectors.append(vector)
-            self.id_map.append(memory_id)
+        try:
+            for memory_id, memory in self.memories.items():
+                vector = self.get_embedding(self.get_embedding_text(memory))
+                vectors.append(vector)
+                self.id_map.append(memory_id)
+        except Exception:
+            # Embedding API 不可用：跳过索引重建（不能让启动/决策因此崩溃）
+            self.id_map = []
+            self.index = None
+            return
 
         if not vectors:
             self.index = None
@@ -150,7 +156,14 @@ class MemoryManager:
             self.save()
             return memory_id
 
-        vector = self.get_embedding(self.get_embedding_text(memory))
+        try:
+            vector = self.get_embedding(self.get_embedding_text(memory))
+        except Exception:
+            # Embedding API 不可用时退化为仅存储（与 faiss 缺失同样的行为），
+            # 不能让记忆功能拖垮整轮 AI 决策
+            self.memories[memory_id] = memory
+            self.save()
+            return memory_id
         vector = np.array([vector], dtype="float32")
 
         if self.index is None:
@@ -177,7 +190,11 @@ class MemoryManager:
 {query}
 """
 
-        vector = self.get_embedding(query)
+        try:
+            vector = self.get_embedding(query)
+        except Exception:
+            # Embedding API 不可用：检索退化为空结果，不中断本轮决策
+            return []
         vector = np.array([vector], dtype="float32")
 
         scores, ids = self.index.search(vector, top_k)

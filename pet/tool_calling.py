@@ -95,6 +95,22 @@ AVAILABLE_FUNCTIONS = {
 }
 
 
+def _parse_tool_arguments(raw: str | None) -> dict:
+    """解析模型返回的工具参数。
+
+    某些模型（如 glm-5.1）对无参工具会返回 '{}{}' 这类带尾随内容的字符串，
+    json.loads 会报 Extra data；这里只取第一个 JSON 值，忽略其后内容。
+    """
+    if not raw or not raw.strip():
+        return {}
+    text = raw.strip()
+    try:
+        value, _end = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 30, reasoning_effort: str = config['llm']['reasoning_effort']) -> str:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     for _ in range(max_iterations):
@@ -121,7 +137,7 @@ def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = 
                     func_response = f"[Tool Disabled] 工具 {func_name} 已被禁用，无法调用。"
                     pet.utils.log(f"工具 {func_name} 被禁用，调用被阻止", "WARNING")
                 else:
-                    func_args = json.loads(
+                    func_args = _parse_tool_arguments(
                         tool_call.function.arguments)  # type:ignore
                     func_to_call = AVAILABLE_FUNCTIONS[func_name]
                     func_response = func_to_call(**func_args)
