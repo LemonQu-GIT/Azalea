@@ -4,14 +4,23 @@ import uuid
 from datetime import datetime
 
 import numpy as np
-import faiss
+try:
+    import faiss
+except ImportError:
+    faiss = None
 import requests
 from openai.types.chat import ChatCompletionMessageParam
 
 import pet.ai_utils
 import pet.utils
+from pet.i18n import t
 
 config = pet.ai_utils.config
+
+if faiss is None:
+    pet.utils.log(
+        "faiss 未安装（缺少 faiss-cpu 可选依赖），长期记忆的语义检索功能已禁用，仅保留基础记忆存储。",
+        "WARNING", save=False)
 
 
 class MemoryManager:
@@ -77,7 +86,9 @@ class MemoryManager:
         else:
             self.id_map = []
 
-        if os.path.exists(self.index_file):
+        if faiss is None:
+            self.index = None
+        elif os.path.exists(self.index_file):
             self.index = faiss.read_index(self.index_file)
 
             if self.index.ntotal != len(self.id_map):
@@ -98,6 +109,10 @@ class MemoryManager:
 """
 
     def rebuild_index(self):
+        if faiss is None:
+            self.index = None
+            return
+
         self.id_map = []
         vectors = []
 
@@ -129,6 +144,11 @@ class MemoryManager:
             "last_used": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "times_used": 0
         }
+
+        if faiss is None:
+            self.memories[memory_id] = memory
+            self.save()
+            return memory_id
 
         vector = self.get_embedding(self.get_embedding_text(memory))
         vector = np.array([vector], dtype="float32")
@@ -221,7 +241,7 @@ class MemoryManager:
         return [memory for score, memory in result]
 
     def generate_memories(self, userInput: str, llmInput: str | None):
-        mem_sys_prompt = """你是一个AI桌宠的长期记忆管理器。
+        mem_sys_prompt = t("""你是一个AI桌宠的长期记忆管理器。
 你的任务是从用户和AI的对话中提取值得长期保存的信息。
 注意：由于AI桌宠是《蔚蓝档案》中的角色，因此会把用户称作“老师”。因此“老师”实际是指用户本人。你可能需要把所有的“老师”换成“用户”以便长期记忆的保存。
 应该保存：
@@ -247,7 +267,7 @@ class MemoryManager:
  }
 ]
 
-如果没有值得保存的信息，返回[]。"""
+如果没有值得保存的信息，返回[]。""")
         if len(self.chat_messages) > self.llmMaxLen:
             self.chat_messages = self.chat_messages[-self.llmMaxLen:]
         if not self.chat_messages or self.chat_messages[0]["role"] != "system":

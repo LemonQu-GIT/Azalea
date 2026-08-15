@@ -24,8 +24,13 @@ register_request_hit_test(request_hit_test)
 register_send_command_threadsafe(ws_manager.broadcast_threadsafe)
 
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
-# ctypes.windll.user32.SetProcessDPIAware()
+if sys.platform == "win32":
+    os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
+    # ctypes.windll.user32.SetProcessDPIAware()
+elif sys.platform.startswith("linux") and not os.environ.get("QT_QPA_PLATFORM"):
+    # 桌宠依赖绝对窗口定位（物理、拖拽、贴边），Wayland 原生协议不允许客户端
+    # 自行定位窗口，因此在 Linux 上默认走 X11/XWayland
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
 def _ensure_queue_bridge_ready(timeout_s: float = 8.0, _started_at: list[float] | None = None):

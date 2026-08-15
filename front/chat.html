@@ -294,6 +294,25 @@
         }, 90);
       }
 
+      // 应用 i18n 翻译（失败时静默回退到现有中文文案）
+      async function applyI18n() {
+        try {
+          const resp = await fetch('/i18n.json');
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const lang = data.language || 'zh';
+          const catalog = data.catalog || {};
+          const t = (key) => (Object.prototype.hasOwnProperty.call(catalog, key) ? catalog[key] : key);
+
+          document.documentElement.lang = lang;
+          document.title = t('与桌宠对话');
+          messageInput.placeholder = t('输入你想对桌宠说的话...');
+          sendBtn.title = t('发送 (Enter)');
+        } catch (_) {
+          // 网络异常等情况下保留原有中文文案
+        }
+      }
+
       messageInput.addEventListener('input', autoResize);
 
       messageInput.addEventListener('keydown', (e) => {
@@ -315,6 +334,7 @@
       // 初始化：打开时先清空，确保不会保留上一次的内容
       clearInput();
       autoResize();
+      applyI18n();
       connectWebSocket();
       // 自动聚焦
       setTimeout(() => messageInput.focus(), 30);

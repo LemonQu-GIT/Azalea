@@ -15,6 +15,7 @@ from pet.signals import emitter
 from pet.websocketm import ws_manager
 from pet.ai import ai_brain_loop
 import pet.utils
+import pet.i18n
 
 
 config = pet.utils.loadConfig()
@@ -86,6 +87,14 @@ async def get_three_core():
 @app.get("/model.glb")
 async def get_model():
     return FileResponse("./models/mika.glb", media_type="model/gltf-binary")
+
+
+@app.get("/i18n.json")
+async def get_i18n():
+    return JSONResponse({
+        "language": pet.i18n.get_language(),
+        "catalog": pet.i18n.get_catalog(),
+    })
 
 
 class ChatSendRequest(BaseModel):

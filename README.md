@@ -1,5 +1,7 @@
 # Azalea Project
 
+中文 | [日本語](README.ja.md)
+
 > DesktopPet for all students in Kivotos
 
 ---
@@ -37,7 +39,7 @@ GPT-SoVITS Model by [**@SLNeil**](https://space.bilibili.com/523537077)
 ## 环境要求
 
 - Python **≥ 3.12**
-- Windows Only（~~我没有经济实力使用 Mac~~）
+- 支持 Windows 与 Linux（~~我没有经济实力使用 Mac~~）。Linux 推荐使用 X11；在 Wayland 下窗口交互相关功能会优雅降级
 - Ollama 或 OpenAI 兼容的 API
 - （可选）Genie-TTS 本地语音合成 API
 - （可选）Embedding 本地词向量 API
@@ -81,11 +83,21 @@ uv sync --extra local
 
 复制示例配置并按需要修改：
 
+Windows：
+
 ```bash
 copy configs\config.example.json configs\config.json
 ```
 
+Linux：
+
+```bash
+cp configs/config.example.json configs/config.json
+```
+
 编辑 `configs\config.json`，至少填入 **LLM 配置**（endpoint、api_key、model）
+
+界面语言可通过顶层的 `"language"` 字段设置（`"zh"` / `"ja"`），环境变量 `AZALEA_LANG` 可覆盖该配置
 
 #### 4. 启动应用
 

@@ -5,7 +5,7 @@ from openai.types.chat import ChatCompletionMessageParam
 import pyautogui
 import subprocess
 
-import pet.windows_utils
+import pet.platform_utils
 import pet.utils
 
 config = pet.utils.loadConfig()
@@ -16,15 +16,15 @@ model = config['llm']['model']
 
 def get_windows_list() -> str:
     windows = []
-    window_hwnds = pet.windows_utils.getWindowsInZOrder()
+    window_hwnds = pet.platform_utils.getWindowsInZOrder()
     for hwnd in window_hwnds:
-        title = pet.windows_utils.getWindowTitle(hwnd)
+        title = pet.platform_utils.getWindowTitle(hwnd)
         if not title:
             continue
-        if not pet.windows_utils.isWindowVisible(hwnd):
+        if not pet.platform_utils.isWindowVisible(hwnd):
             continue
 
-        x, y, width, height = pet.windows_utils.getWindowRect(hwnd)
+        x, y, width, height = pet.platform_utils.getWindowRect(hwnd)
         if x is not None and y is not None and width is not None and height is not None:
             windows.append({
                 "hwnd": hwnd,

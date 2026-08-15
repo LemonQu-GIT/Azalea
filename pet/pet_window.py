@@ -25,7 +25,7 @@ from pet.constants import (
     GRAVITY,
 )
 import pet.utils
-import pet.windows_utils
+import pet.platform_utils
 
 from pet.signals import emitter
 from pet.physics import (
@@ -40,6 +40,7 @@ from pet.ai import register_active_window
 from pet.webview import PetWebView
 from pet.window_tracker import WindowTracker
 from pet.utils import loadConfig
+from pet.i18n import t
 
 # os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
 # ctypes.windll.user32.SetProcessDPIAware()
@@ -137,21 +138,10 @@ class ChatBubble(QWidget):
             self.winId()
         self.show()
         self.raise_()
-        if sys.platform == "win32":
-            try:
-                HWND_TOPMOST = -1
-                SWP_NOMOVE = 0x0002
-                SWP_NOSIZE = 0x0001
-                SWP_NOACTIVATE = 0x0010
-                SWP_SHOWWINDOW = 0x0040
-                ctypes.windll.user32.SetWindowPos(
-                    int(self.winId()),
-                    HWND_TOPMOST,
-                    0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                )
-            except Exception:
-                pass
+        try:
+            pet.platform_utils.raiseWindowToTop(int(self.winId()))
+        except Exception:
+            pass
 
     def hide_bubble(self):
         self._hide_timer.stop()
@@ -276,7 +266,7 @@ class ChatWindow(QWidget):
         fconfig = pet.utils.loadConfig()
 
         # 无边框 + 工具窗 + 始终置顶
-        self.setWindowTitle("与桌宠对话")
+        self.setWindowTitle(t("与桌宠对话"))
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Tool
@@ -418,7 +408,7 @@ class PetWindow(QWidget):
         self.webView.load(
             QUrl(f"http://{fconfig['petServer']['host']}:{fconfig['petServer']['port']}"))
 
-        self.screen_width, self.screen_height = pet.windows_utils.getScreenSize()
+        self.screen_width, self.screen_height = pet.platform_utils.getScreenSize()
 
         self.physics = PetPhysics(self.screen_width, self.screen_height)
         self.tracker = WindowTracker(self.screen_width, self.screen_height)
@@ -477,7 +467,10 @@ class PetWindow(QWidget):
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.scan_desktop_windows)
-        self.scan_timer.start(1000 // 60)
+        # X11 上每次扫描是逐窗口的同步 X 往返（窗口多时会占满主线程帧预算），
+        # 因此 Linux 降到 12fps；Windows 走进程内 user32 调用，保持 60fps
+        scan_fps = 60 if pet.platform_utils.IS_WINDOWS else 12
+        self.scan_timer.start(1000 // scan_fps)
 
         self.physics_timer = QTimer(self)
         self.physics_timer.timeout.connect(self.update_physics)
@@ -1481,7 +1474,7 @@ class PetWindow(QWidget):
             pass
 
     def sync_click_through_state(self):
-        if sys.platform != "win32":
+        if not pet.platform_utils.CLICK_THROUGH_SUPPORTED:
             return
 
         if self.window_drag_active:
@@ -1502,27 +1495,14 @@ class PetWindow(QWidget):
         _request_hit_test(local_pos.x(), local_pos.y())
 
     def set_click_through(self, enabled: bool):
-        if sys.platform != "win32":
+        if not pet.platform_utils.CLICK_THROUGH_SUPPORTED:
             return
 
         if enabled == self.click_through_enabled:
             return
 
         self.click_through_enabled = enabled
-        hwnd = int(self.winId())
-
-        GWL_EXSTYLE = -20
-        WS_EX_LAYERED = 0x80000
-        WS_EX_TRANSPARENT = 0x20
-
-        current_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-
-        if enabled:
-            new_style = current_style | WS_EX_LAYERED | WS_EX_TRANSPARENT
-        else:
-            new_style = (current_style | WS_EX_LAYERED) & ~WS_EX_TRANSPARENT
-
-        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+        pet.platform_utils.setWindowClickThrough(self, enabled)
 
     def _check_drag_end_and_play_anim(self) -> None:
         """检查拖拽结束后桌宠是否已落地，是则播放end_drag动画。"""

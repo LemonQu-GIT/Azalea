@@ -15,7 +15,8 @@ import threading
 # 之后通过本地 TCP 端口接收主进程发来的 SHOW/HIDE/QUIT 命令来控制显示或退出。
 
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
-os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
+if sys.platform == "win32":
+    os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
 
 
 DEFAULT_CMD_PORT = 52341

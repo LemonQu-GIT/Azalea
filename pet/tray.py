@@ -51,7 +51,8 @@ from qfluentwidgets import (
 import darkdetect
 
 from pet.utils import loadConfig, saveConfig
-from pet.windows_utils import get_windows_theme_color
+from pet.platform_utils import get_windows_theme_color
+from pet.i18n import t
 
 
 class ThemeConfig(QConfig):
@@ -138,8 +139,8 @@ class SwitchSettingCard(SettingCard):
         super().__init__(icon, title, content, parent)
         self.switchButton = SwitchButton(self)
         self.switchButton.setChecked(bool(value))
-        self.switchButton.setOnText("开")
-        self.switchButton.setOffText("关")
+        self.switchButton.setOnText(t("开"))
+        self.switchButton.setOffText(t("关"))
         self.hBoxLayout.addWidget(
             self.switchButton, 0, Qt.AlignmentFlag.AlignRight)
         self.hBoxLayout.addSpacing(16)
@@ -192,7 +193,7 @@ class SettingsWidget(QWidget):
         self.expandLayout = ExpandLayout(self.scrollWidget)
 
         # 标题
-        self.settingLabel = SubtitleLabel("AI 桌宠设置", self.scrollWidget)
+        self.settingLabel = SubtitleLabel(t("AI 桌宠设置"), self.scrollWidget)
         setFont(self.settingLabel, 24)
 
         self.config = loadConfig()
@@ -201,14 +202,14 @@ class SettingsWidget(QWidget):
         server_cfg = self.config["petServer"]
 
         # --- UI 外观组 ---
-        self.uiGroup = SettingCardGroup("UI 外观", self.scrollWidget)
+        self.uiGroup = SettingCardGroup(t("UI 外观"), self.scrollWidget)
 
         self.themeCard = OptionsSettingCard(
             themeCfg.themeMode,
             FIF.BRUSH,
-            "主题",
-            "改变应用的整体外观（浅色 / 深色 / 跟随系统）",
-            texts=["浅色", "深色", "跟随系统"],
+            t("主题"),
+            t("改变应用的整体外观（浅色 / 深色 / 跟随系统）"),
+            texts=[t("浅色"), t("深色"), t("跟随系统")],
             parent=self.uiGroup,
         )
         self.themeCard.optionChanged.connect(
@@ -218,8 +219,8 @@ class SettingsWidget(QWidget):
         self.themeColorCard = CustomColorSettingCard(
             themeCfg.themeColor,
             FIF.PALETTE,
-            "主题色",
-            "改变应用的主题强调色",
+            t("主题色"),
+            t("改变应用的主题强调色"),
             parent=self.uiGroup,
         )
         self.themeColorCard.colorChanged.connect(setThemeColor)
@@ -228,67 +229,67 @@ class SettingsWidget(QWidget):
         self.uiGroup.addSettingCard(self.themeColorCard)
 
         # --- LLM 配置组 ---
-        self.llmGroup = SettingCardGroup("LLM 配置", self.scrollWidget)
+        self.llmGroup = SettingCardGroup(t("LLM 配置"), self.scrollWidget)
 
         self.llmEnabledCard = SwitchSettingCard(
             FIF.EDIT,
-            "启用 LLM",
-            "是否启用大模型对话与智能功能",
+            t("启用 LLM"),
+            t("是否启用大模型对话与智能功能"),
             value=bool(llm_cfg.get("enabled", False)),
             parent=self.llmGroup,
         )
         self.talkFrequencyCard = LineEditSettingCard(
             FIF.SPEED_HIGH,
-            "对话频率",
-            "桌宠的说话频率（low / normal / high）",
+            t("对话频率"),
+            t("桌宠的说话频率（low / normal / high）"),
             value=llm_cfg.get("talk_frequency", "normal"),
             parent=self.llmGroup,
         )
         self.endpointCard = LineEditSettingCard(
             FIF.CLOUD,
-            "API 请求端点",
+            t("API 请求端点"),
             value=llm_cfg.get("endpoint", ""),
             parent=self.llmGroup,
         )
         self.apiKeyCard = PasswordLineEditSettingCard(
             FIF.VPN,
-            "API Key",
-            "用于认证的 API Key",
+            t("API Key"),
+            t("用于认证的 API Key"),
             value=llm_cfg.get("api_key", ""),
             parent=self.llmGroup,
         )
         self.modelCard = LineEditSettingCard(
             FIF.LIBRARY,
-            "模型",
-            "对话使用的模型名称",
+            t("模型"),
+            t("对话使用的模型名称"),
             value=llm_cfg.get("model", ""),
             parent=self.llmGroup,
         )
         self.reasoningEffortCard = LineEditSettingCard(
             FIF.SPEED_HIGH,
-            "推理程度",
-            "推理程度（none / minimal / low / medium / high）",
+            t("推理程度"),
+            t("推理程度（none / minimal / low / medium / high）"),
             value=llm_cfg.get("reasoning_effort", "none"),
             parent=self.llmGroup,
         )
         self.embeddingModelCard = LineEditSettingCard(
             FIF.FOLDER,
-            "向量化模型",
-            "向量化模型路径或名称（用于 Embedding API 服务加载）",
+            t("向量化模型"),
+            t("向量化模型路径或名称（用于 Embedding API 服务加载）"),
             value=llm_cfg.get("embedding_model", ""),
             parent=self.llmGroup,
         )
         self.embeddingEndpointCard = LineEditSettingCard(
             FIF.CLOUD,
-            "向量化模型 API 端点",
-            "如 http://127.0.0.1:8002/v1/embeddings",
+            t("向量化模型 API 端点"),
+            t("如 http://127.0.0.1:8002/v1/embeddings"),
             value=llm_cfg.get("embedding_model_endpoint", ""),
             parent=self.llmGroup,
         )
         self.embeddingApiKeyCard = PasswordLineEditSettingCard(
             FIF.VPN,
-            "Embedding API Key",
-            "调用 Embedding API 时使用的认证密钥（可留空）",
+            t("Embedding API Key"),
+            t("调用 Embedding API 时使用的认证密钥（可留空）"),
             value=llm_cfg.get("embedding_model_key", ""),
             parent=self.llmGroup,
         )
@@ -304,7 +305,7 @@ class SettingsWidget(QWidget):
         self.llmGroup.addSettingCard(self.embeddingApiKeyCard)
 
         # --- 工具配置组 ---
-        self.toolsGroup = SettingCardGroup("LLM 工具配置", self.scrollWidget)
+        self.toolsGroup = SettingCardGroup(t("LLM 工具配置"), self.scrollWidget)
         self.tool_cards = {}
         tools_cfg = llm_cfg.setdefault("tools", {})
 
@@ -326,26 +327,26 @@ class SettingsWidget(QWidget):
             tool_card = SwitchSettingCard(
                 FIF.ROBOT,
                 tool_name,
-                tool_desc,
+                t(tool_desc),
                 value=tool_enabled,
                 parent=self.toolsGroup,
             )
             self.tool_cards[tool_name] = tool_card
             self.toolsGroup.addSettingCard(tool_card)
 
-        self.serverGroup = SettingCardGroup("PetServer 配置", self.scrollWidget)
+        self.serverGroup = SettingCardGroup(t("PetServer 配置"), self.scrollWidget)
 
         self.hostCard = LineEditSettingCard(
             FIF.IOT,
-            "桌宠服务地址",
-            "本地 PetServer 监听地址",
+            t("桌宠服务地址"),
+            t("本地 PetServer 监听地址"),
             value=server_cfg.get("host", "127.0.0.1"),
             parent=self.serverGroup,
         )
         self.portCard = SpinBoxSettingCard(
             FIF.RINGER,
-            "服务端口",
-            "本地 PetServer 监听端口",
+            t("服务端口"),
+            t("本地 PetServer 监听端口"),
             value=int(server_cfg.get("port", 8001)),
             range=(1, 65535),
             parent=self.serverGroup,
@@ -355,55 +356,55 @@ class SettingsWidget(QWidget):
         self.serverGroup.addSettingCard(self.portCard)
 
         # --- TTS 配置组 ---
-        self.ttsGroup = SettingCardGroup("TTS 语音配置", self.scrollWidget)
+        self.ttsGroup = SettingCardGroup(t("TTS 语音配置"), self.scrollWidget)
 
         self.ttsEnabledCard = SwitchSettingCard(
             FIF.VOLUME,
-            "启用 TTS",
-            "是否启用文本转语音播报功能",
+            t("启用 TTS"),
+            t("是否启用文本转语音播报功能"),
             value=bool(tts_cfg.get("enabled", True)),
             parent=self.ttsGroup,
         )
         self.ttsEndpointCard = LineEditSettingCard(
             FIF.CLOUD,
-            "TTS 服务端点",
-            "TTS HTTP 服务地址，如 http://127.0.0.1:8003",
+            t("TTS 服务端点"),
+            t("TTS HTTP 服务地址，如 http://127.0.0.1:8003"),
             value=tts_cfg.get("endpoint", "http://127.0.0.1:8003"),
             parent=self.ttsGroup,
         )
         self.ttsHostCard = LineEditSettingCard(
             FIF.IOT,
-            "TTS 监听地址",
-            "本地 TTS 服务绑定地址",
+            t("TTS 监听地址"),
+            t("本地 TTS 服务绑定地址"),
             value=tts_cfg.get("host", "127.0.0.1"),
             parent=self.ttsGroup,
         )
         self.ttsPortCard = SpinBoxSettingCard(
             FIF.RINGER,
-            "TTS 服务端口",
-            "本地 TTS 服务监听端口",
+            t("TTS 服务端口"),
+            t("本地 TTS 服务监听端口"),
             value=int(tts_cfg.get("port", 8003)),
             range=(1, 65535),
             parent=self.ttsGroup,
         )
         self.ttsLanguageCard = LineEditSettingCard(
             FIF.LANGUAGE,
-            "语言",
-            "合成语言（如 zh / jp）",
+            t("语言"),
+            t("合成语言（如 zh / jp）"),
             value=tts_cfg.get("language", "zh"),
             parent=self.ttsGroup,
         )
         self.ttsGenieDirCard = LineEditSettingCard(
             FIF.FOLDER,
-            "Genie 数据目录",
-            "GenieData 资源目录路径",
+            t("Genie 数据目录"),
+            t("GenieData 资源目录路径"),
             value=tts_cfg.get("genie_data_dir", "./data/GenieData"),
             parent=self.ttsGroup,
         )
         self.ttsOnnxDirCard = LineEditSettingCard(
             FIF.FOLDER,
-            "ONNX 模型目录",
-            "ONNX 模型资源目录路径",
+            t("ONNX 模型目录"),
+            t("ONNX 模型资源目录路径"),
             value=tts_cfg.get("onnx_model_dir", "./data/onnx_mika"),
             parent=self.ttsGroup,
         )
@@ -455,7 +456,7 @@ class SettingsWidget(QWidget):
         themeCfg.themeMode.valueChanged.connect(
             lambda ci: _update_mask_color())
 
-        self.saveButton = PrimaryPushButton("保存配置", self)
+        self.saveButton = PrimaryPushButton(t("保存配置"), self)
         self.saveButton.setFixedHeight(40)
         self.saveButton.setFixedWidth(180)
         self.saveButton.clicked.connect(self.save_config)
@@ -505,7 +506,7 @@ class SettingsWidget(QWidget):
             yes_btn = w.yesButton
             cancel_btn = w.cancelButton
             if isinstance(yes_btn, (PrimaryPushButton, PushButton)):
-                yes_btn.setText("确定")
+                yes_btn.setText(t("确定"))
             if cancel_btn is not None:
                 cancel_btn.hide()
         except Exception:
@@ -534,20 +535,20 @@ class SettingsWidget(QWidget):
         if enabled:
             if not all([endpoint, api_key, model, embedding_model, embedding_endpoint]):
                 self._show_dialog(
-                    "保存失败",
-                    "启用 LLM 后，请先填写完整的 LLM 配置（包括 Embedding Endpoint）。",
+                    t("保存失败"),
+                    t("启用 LLM 后，请先填写完整的 LLM 配置（包括 Embedding Endpoint）。"),
                 )
                 return
         if not host:
             self._show_dialog(
-                "保存失败",
-                "PetServer 的 host 不能为空。",
+                t("保存失败"),
+                t("PetServer 的 host 不能为空。"),
             )
             return
         if tts_enabled and not tts_endpoint:
             self._show_dialog(
-                "保存失败",
-                "启用 TTS 后，请先填写 TTS 服务端点。",
+                t("保存失败"),
+                t("启用 TTS 后，请先填写 TTS 服务端点。"),
             )
             return
 
@@ -589,8 +590,8 @@ class SettingsWidget(QWidget):
             pass
 
         self._show_dialog(
-            "保存成功",
-            "配置已保存，请重启程序后生效。",
+            t("保存成功"),
+            t("配置已保存，请重启程序后生效。"),
         )
 
 
@@ -611,10 +612,10 @@ class SettingsWindow(SplitFluentWindow):
         self.initWindow()
 
     def initNavigation(self):
-        self.addSubInterface(self.settingsInterface, FIF.SETTING, "设置")
+        self.addSubInterface(self.settingsInterface, FIF.SETTING, t("设置"))
 
     def initWindow(self):
-        self.setWindowTitle("桌宠设置")
+        self.setWindowTitle(t("桌宠设置"))
         self.setWindowIcon(QIcon(
             './front/icon_light' if themeCfg.themeMode.value == Theme.LIGHT else './front/icon_dark'))
         self._center_window()
@@ -643,16 +644,16 @@ class SystemTray(QSystemTrayIcon):
 
         self.setIcon(QIcon('./front/icon_light' if themeCfg.themeMode.value ==
                      Theme.LIGHT else './front/icon_dark'))
-        self.setToolTip("AI 桌宠")
+        self.setToolTip(t("AI 桌宠"))
 
         menu = QMenu()
-        show_action = QAction("显示/隐藏桌宠", self)
+        show_action = QAction(t("显示/隐藏桌宠"), self)
         show_action.triggered.connect(self.toggle_pet)
 
-        settings_action = QAction("打开设置", self)
+        settings_action = QAction(t("打开设置"), self)
         settings_action.triggered.connect(self.show_settings)
 
-        quit_action = QAction("退出", self)
+        quit_action = QAction(t("退出"), self)
         quit_action.triggered.connect(self._quit_all)
 
         menu.addAction(show_action)

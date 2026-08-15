@@ -1,4 +1,5 @@
 {
+    "language": "ja",
     "3dmodel": {
         "animations": [
             "CH0069_Formation_Idle",
@@ -43,6 +44,7 @@
     },
     "window": {
         "title": "Azalea Pet",
+        "always_on_top": true,
         "size": {
             "width": 405,
             "height": 450
@@ -63,8 +65,8 @@
     "llm": {
         "talk_frequency": "normal",
         "endpoint": "http://localhost:11434/v1/",
-        "api_key": "ollama",
-        "model": "gemma4:31b-cloud",
+        "api_key": "YOUR_API_KEY",
+        "model": "gemma3:27b",
         "reasoning_effort": "none",
         "embedding_model": "./data/bge-small-zh-v1.5",
         "embedding_model_endpoint": "http://127.0.0.1:8002/v1/embeddings",
