@@ -25,6 +25,14 @@ except Exception:  # pragma: no cover - depends on the host environment
     _xevent = None  # type: ignore[assignment]
     _XLIB_OK = False
 
+try:  # SHAPE 扩展：用于设置静态输入区域（点击穿透）
+    from Xlib.ext import shape as _xshape
+
+    _SHAPE_OK = _XLIB_OK
+except Exception:  # pragma: no cover
+    _xshape = None  # type: ignore[assignment]
+    _SHAPE_OK = False
+
 
 # 默认主题色（Windows 蓝），在拿不到 Qt 调色板时使用
 DEFAULT_THEME_COLOR = (0x00, 0x78, 0xD4, 0xFF)
@@ -354,6 +362,108 @@ def raiseWindowToTop(handle: int) -> bool:
         except Exception:
             _reset_display()
             return False
+
+
+def has_input_shape() -> bool:
+    """SHAPE 扩展是否可用（静态输入区域点击穿透的前提）。"""
+    if not _SHAPE_OK:
+        return False
+    display = _get_display()
+    if display is None:
+        return False
+    with _lock:
+        try:
+            return display.query_extension(_xshape.extname) is not None
+        except Exception:
+            return False
+
+
+def setWindowInputRegion(
+    handle: int,
+    rect: tuple[int, int, int, int] | tuple[()] | None = None,
+) -> bool:
+    """设置窗口的 X11 输入区域（SHAPE Input）。
+
+    ``rect`` 的三种取值：
+
+    - ``None``：恢复整窗口可点击。
+    - 空序列 ``()``：输入区域为空，整个窗口完全点击穿透（气泡这类纯展示
+      窗口用这个）。
+    - ``(x, y, width, height)``：相对窗口左上角的矩形，只有矩形内的点击
+      会落到本窗口，其余区域穿透到下层窗口。
+
+    宽或高 <= 0 的矩形一律视为参数错误返回 False，而不是当成"空区域"——
+    免得某个算错的区域把窗口静默变成完全点不到。要空区域请显式传 ``()``。
+
+    这是 Wayland/XWayland 会话下唯一可靠的点击穿透方式：它是静态的，
+    不依赖全局指针位置（XQueryPointer 在 Wayland 下会是陈旧值）。
+    """
+    if not _SHAPE_OK:
+        return False
+    window = _window(handle)
+    display = _get_display()
+    if window is None or display is None:
+        return False
+
+    with _lock:
+        try:
+            # 先做一次同步往返验证 handle：shape 请求本身是异步的，句柄无效时
+            # 不会返回错误，只会在之后由 Xlib 默认错误处理器打一堆 BadWindow。
+            # （比如 Qt 跑在 wayland 插件下，winId() 根本不是 X 窗口 id。）
+            geometry = window.get_geometry()
+
+            if rect is None:
+                rectangles = [{
+                    "x": 0,
+                    "y": 0,
+                    "width": int(geometry.width),
+                    "height": int(geometry.height),
+                }]
+            elif len(rect) == 0:
+                # SHAPE Set + 零个矩形 = 空输入区域
+                rectangles = []
+            else:
+                x, y, width, height = (int(v) for v in rect)
+                if width <= 0 or height <= 0:
+                    return False
+                rectangles = [{
+                    "x": x,
+                    "y": y,
+                    "width": width,
+                    "height": height,
+                }]
+
+            window.shape_rectangles(
+                _xshape.SO.Set,
+                _xshape.SK.Input,
+                _X.Unsorted,
+                0,
+                0,
+                rectangles,
+            )
+            display.flush()
+            return True
+        except Exception:
+            _reset_display()
+            return False
+
+
+def getWindowInputRegion(handle: int) -> list[tuple[int, int, int, int]] | None:
+    """读回窗口当前的 SHAPE Input 矩形列表，失败返回 None。"""
+    if not _SHAPE_OK:
+        return None
+    window = _window(handle)
+    if window is None:
+        return None
+    with _lock:
+        try:
+            reply = window.shape_get_rectangles(_xshape.SK.Input)
+            return [
+                (int(r.x), int(r.y), int(r.width), int(r.height))
+                for r in reply.rectangles
+            ]
+        except Exception:
+            return None
 
 
 def setWindowZOrderAfter(handle: int, insert_after: int) -> bool:

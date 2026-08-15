@@ -650,6 +650,12 @@ class SystemTray(QSystemTrayIcon):
         show_action = QAction(t("显示/隐藏桌宠"), self)
         show_action.triggered.connect(self.toggle_pet)
 
+        always_on_top_action = QAction(t("置顶显示"), self)
+        always_on_top_action.setCheckable(True)
+        always_on_top_action.setChecked(
+            bool(loadConfig().get("window", {}).get("always_on_top", True)))
+        always_on_top_action.toggled.connect(self._on_always_on_top_toggled)
+
         settings_action = QAction(t("打开设置"), self)
         settings_action.triggered.connect(self.show_settings)
 
@@ -657,6 +663,7 @@ class SystemTray(QSystemTrayIcon):
         quit_action.triggered.connect(self._quit_all)
 
         menu.addAction(show_action)
+        menu.addAction(always_on_top_action)
         menu.addAction(settings_action)
         menu.addSeparator()
         menu.addAction(quit_action)
@@ -725,6 +732,12 @@ class SystemTray(QSystemTrayIcon):
             self.pet_window.hide()
         else:
             self.pet_window.show()
+
+    def _on_always_on_top_toggled(self, enabled: bool):
+        config = loadConfig()
+        config.setdefault("window", {})["always_on_top"] = bool(enabled)
+        saveConfig(config)
+        self.pet_window.set_always_on_top(bool(enabled))
 
     def show_settings(self):
         if not self._ensure_settings_alive():

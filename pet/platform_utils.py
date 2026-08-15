@@ -35,8 +35,26 @@ else:
     WINDOW_Z_TOP = 0
     _SWP_FLAGS = 0
 
-# 点击穿透：Windows 用 WS_EX_TRANSPARENT，Linux 用 Qt 的 WindowTransparentForInput
-CLICK_THROUGH_SUPPORTED = IS_WINDOWS or IS_LINUX
+def _detect_click_through_mode() -> str:
+    """点击穿透的实现方式。
+
+    - ``"dynamic"``  (Windows) 按指针位置实时切换 WS_EX_TRANSPARENT。
+    - ``"static-region"`` (Linux/X11) 用 SHAPE 扩展一次性设定输入区域。
+      Wayland 会话里全局指针位置是陈旧的，动态方案会永久卡在穿透状态，
+      所以这里必须用静态区域。
+    - ``"none"``     没有可用方案，窗口整体可点击。
+    """
+    if IS_WINDOWS:
+        return "dynamic"
+    if IS_LINUX and _impl.has_input_shape():
+        return "static-region"
+    return "none"
+
+
+CLICK_THROUGH_MODE = _detect_click_through_mode()
+
+# 仅表示"支持按指针位置动态切换穿透"，pet_window 用它来决定是否启用 30ms 轮询。
+CLICK_THROUGH_SUPPORTED = CLICK_THROUGH_MODE == "dynamic"
 
 
 def get_theme_color(hex: bool = False) -> tuple[int, int, int, int] | str:
@@ -157,6 +175,26 @@ def setWindowZOrderAfter(handle: int, insert_after: int) -> bool:
         except Exception:
             return False
     return _impl.setWindowZOrderAfter(handle, insert_after)
+
+
+def setWindowInputRegion(
+    handle: int,
+    rect: tuple[int, int, int, int] | tuple[()] | None = None,
+) -> bool:
+    """设置窗口静态输入区域（仅 ``static-region`` 模式有效）。
+
+    ``None`` 恢复整窗口可点击，空元组 ``()`` 表示完全点击穿透。
+    """
+    if not handle or CLICK_THROUGH_MODE != "static-region":
+        return False
+    return _impl.setWindowInputRegion(handle, rect)
+
+
+def getWindowInputRegion(handle: int) -> list[tuple[int, int, int, int]] | None:
+    """读回窗口当前的输入区域矩形，不支持时返回 None。"""
+    if not handle or CLICK_THROUGH_MODE != "static-region":
+        return None
+    return _impl.getWindowInputRegion(handle)
 
 
 def setWindowClickThrough(window, enabled: bool) -> bool:

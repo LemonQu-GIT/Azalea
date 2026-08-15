@@ -70,6 +70,14 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
+    if sys.platform.startswith("linux") and app.platformName() != "xcb":
+        # 静态输入区域（点击/拖拽/穿透）依赖 X11 SHAPE，wayland 插件下 winId
+        # 不是 X 窗口 id，穿透会静默失效，桌宠整个矩形都会挡住鼠标
+        _pet_utils.log(
+            f"当前 Qt 平台为 {app.platformName()}（非 xcb），点击穿透与窗口交互将退化；"
+            "请勿显式设置 QT_QPA_PLATFORM=wayland",
+            "WARNING")
+
     _tts_sound_entries: list[tuple[QSoundEffect, str]] = []
 
     def _play_tts_sound(wav_path: str):

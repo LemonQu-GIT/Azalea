@@ -66,6 +66,12 @@ class WindowTracker:
         self.is_temporarily_topmost = False
         self.is_drag_topmost = False
 
+        # 由 PetWindow.set_always_on_top 实时更新（不是每帧重读配置）。
+        # 为 False 时，下面所有"强制置顶"的调用都不再把桌宠顶到最上层；
+        # 但 sync_z_order_to_container 之类维护"贴在特定窗口上方"的相对
+        # 层级逻辑与这个开关无关，不受影响。
+        self.always_on_top_enabled = True
+
         self.window_bounce: WindowBouncePhysics | None = None
         self.window_bounce_pending_hwnd: int | None = None
         self.window_bounce_pending_impact_speed: float = 0.0
@@ -506,14 +512,26 @@ class WindowTracker:
         if self.self_hwnd is None:
             return
 
+        # 用户关闭了"置顶显示"：拖拽期间也不强制把桌宠顶到最上层
+        effective_enable = enable and self.always_on_top_enabled
+
         try:
-            pet.platform_utils.setWindowTopmost(self.self_hwnd, enable)
-            self.is_drag_topmost = enable
+            pet.platform_utils.setWindowTopmost(self.self_hwnd, effective_enable)
+            self.is_drag_topmost = effective_enable
         except Exception:
             pass
 
     def update_temporary_topmost(self) -> None:
         if self.self_hwnd is None:
+            return
+
+        if not self.always_on_top_enabled:
+            # 置顶已关闭：确保不残留强制置顶状态，其余逻辑（临时置顶）全部跳过
+            if self.is_temporarily_topmost:
+                pet.platform_utils.setWindowTopmost(self.self_hwnd, False)
+                self.is_temporarily_topmost = False
+                if self.active_container_hwnd is not None:
+                    self.sync_z_order_to_container(self.active_container_hwnd)
             return
 
         # 拖拽期间始终置顶
