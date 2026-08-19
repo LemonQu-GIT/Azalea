@@ -70,15 +70,16 @@ def interactive_select(title: str, options: list[str], default_index: int = 0) -
                 print(f"    {opt}")
         sys.stdout.flush()
 
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.GetStdHandle(-11)
-        mode = ctypes.c_ulong()
-        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
-    except Exception:
-        pass
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+        except Exception:
+            pass
 
     render_menu(first_time=True)
 
@@ -402,6 +403,8 @@ def _get_console_size() -> tuple[int, int]:
         size = os.get_terminal_size()
         return size.columns, size.lines
     except Exception:
+        if sys.platform != "win32":
+            return 120, 30
         try:
             import ctypes
 
@@ -817,8 +820,8 @@ def run_with_tui():
 
 
 def main():
-    if platform.system() != "Windows":
-        print("本项目仅支持Windows系统，请在Windows系统下运行")
+    if platform.system() not in ("Windows", "Linux"):
+        print("本项目目前仅支持Windows和Linux系统")
         sys.exit(1)
 
     if not os.path.exists(CONFIG_PATH):

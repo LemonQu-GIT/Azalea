@@ -5,7 +5,7 @@ from openai.types.chat import ChatCompletionMessageParam
 import pyautogui
 import subprocess
 
-import pet.windows_utils
+import pet.platform_utils
 import pet.utils
 
 config = pet.utils.loadConfig()
@@ -16,15 +16,15 @@ model = config['llm']['model']
 
 def get_windows_list() -> str:
     windows = []
-    window_hwnds = pet.windows_utils.getWindowsInZOrder()
+    window_hwnds = pet.platform_utils.getWindowsInZOrder()
     for hwnd in window_hwnds:
-        title = pet.windows_utils.getWindowTitle(hwnd)
+        title = pet.platform_utils.getWindowTitle(hwnd)
         if not title:
             continue
-        if not pet.windows_utils.isWindowVisible(hwnd):
+        if not pet.platform_utils.isWindowVisible(hwnd):
             continue
 
-        x, y, width, height = pet.windows_utils.getWindowRect(hwnd)
+        x, y, width, height = pet.platform_utils.getWindowRect(hwnd)
         if x is not None and y is not None and width is not None and height is not None:
             windows.append({
                 "hwnd": hwnd,
@@ -95,6 +95,22 @@ AVAILABLE_FUNCTIONS = {
 }
 
 
+def _parse_tool_arguments(raw: str | None) -> dict:
+    """解析模型返回的工具参数。
+
+    某些模型（如 glm-5.1）对无参工具会返回 '{}{}' 这类带尾随内容的字符串，
+    json.loads 会报 Extra data；这里只取第一个 JSON 值，忽略其后内容。
+    """
+    if not raw or not raw.strip():
+        return {}
+    text = raw.strip()
+    try:
+        value, _end = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = model, max_iterations: int = 30, reasoning_effort: str = config['llm']['reasoning_effort']) -> str:
     assert reasoning_effort in ["none", "minimal", "low", "medium", "high"]
     for _ in range(max_iterations):
@@ -121,7 +137,7 @@ def run_llm_with_tools(messages: list[ChatCompletionMessageParam], model: str = 
                     func_response = f"[Tool Disabled] 工具 {func_name} 已被禁用，无法调用。"
                     pet.utils.log(f"工具 {func_name} 被禁用，调用被阻止", "WARNING")
                 else:
-                    func_args = json.loads(
+                    func_args = _parse_tool_arguments(
                         tool_call.function.arguments)  # type:ignore
                     func_to_call = AVAILABLE_FUNCTIONS[func_name]
                     func_response = func_to_call(**func_args)

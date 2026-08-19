@@ -23,9 +23,11 @@ from pet.constants import (
     PET_HEIGHT,
     STEP_SECONDS,
     GRAVITY,
+    COLLISION_OFFSET_LEFT,
+    COLLISION_OFFSET_TOP,
 )
 import pet.utils
-import pet.windows_utils
+import pet.platform_utils
 
 from pet.signals import emitter
 from pet.physics import (
@@ -40,6 +42,7 @@ from pet.ai import register_active_window
 from pet.webview import PetWebView
 from pet.window_tracker import WindowTracker
 from pet.utils import loadConfig
+from pet.i18n import t
 
 # os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
 # ctypes.windll.user32.SetProcessDPIAware()
@@ -98,6 +101,26 @@ class ChatBubble(QWidget):
 
         self._update_font()
 
+    def _apply_click_through_region(self) -> None:
+        """气泡是纯展示窗口，把它的 X11 输入区域清空。
+
+        WA_TransparentForMouseEvents 只管 Qt 内部的事件派发，管不到 X 层，
+        所以在 Linux 上气泡仍然会把下层窗口的点击吃掉。static-region 模式下
+        显式把输入区域设成空，让点击完全穿过去。
+        """
+        if pet.platform_utils.CLICK_THROUGH_MODE != "static-region":
+            return
+        try:
+            pet.platform_utils.setWindowInputRegion(int(self.winId()), ())
+        except Exception:
+            pass
+
+    def showEvent(self, a0):  # type: ignore
+        super().showEvent(a0)
+        # 每次重新映射后都要重贴（Qt 会在映射过程中自己动 shape）
+        self._apply_click_through_region()
+        QTimer.singleShot(0, self._apply_click_through_region)
+
     def _update_font(self):
         candidates = [
             "Microsoft YaHei UI",
@@ -137,21 +160,12 @@ class ChatBubble(QWidget):
             self.winId()
         self.show()
         self.raise_()
-        if sys.platform == "win32":
-            try:
-                HWND_TOPMOST = -1
-                SWP_NOMOVE = 0x0002
-                SWP_NOSIZE = 0x0001
-                SWP_NOACTIVATE = 0x0010
-                SWP_SHOWWINDOW = 0x0040
-                ctypes.windll.user32.SetWindowPos(
-                    int(self.winId()),
-                    HWND_TOPMOST,
-                    0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                )
-            except Exception:
-                pass
+        # 气泡已经显示时再来一条消息不会触发 showEvent，这里补一次
+        self._apply_click_through_region()
+        try:
+            pet.platform_utils.raiseWindowToTop(int(self.winId()))
+        except Exception:
+            pass
 
     def hide_bubble(self):
         self._hide_timer.stop()
@@ -276,7 +290,7 @@ class ChatWindow(QWidget):
         fconfig = pet.utils.loadConfig()
 
         # 无边框 + 工具窗 + 始终置顶
-        self.setWindowTitle("与桌宠对话")
+        self.setWindowTitle(t("与桌宠对话"))
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Tool
@@ -384,6 +398,10 @@ class ChatWindow(QWidget):
 
 
 class PetWindow(QWidget):
+    # static-region 模式下输入区域相对碰撞盒的外扩量（向上多留出脑袋，方便摸头）
+    _INPUT_REGION_PAD_TOP = 40
+    _INPUT_REGION_PAD_X = 10
+
     def __init__(self):
         super().__init__()
 
@@ -391,9 +409,12 @@ class PetWindow(QWidget):
         register_active_window(self)
 
         self.setWindowTitle(WINDOW_TITLE)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
-        )
+        self._always_on_top = bool(
+            fconfig.get("window", {}).get("always_on_top", True))
+        window_flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        if self._always_on_top:
+            window_flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(window_flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
         self.setFixedSize(PET_WIDTH, PET_HEIGHT)
@@ -418,10 +439,11 @@ class PetWindow(QWidget):
         self.webView.load(
             QUrl(f"http://{fconfig['petServer']['host']}:{fconfig['petServer']['port']}"))
 
-        self.screen_width, self.screen_height = pet.windows_utils.getScreenSize()
+        self.screen_width, self.screen_height = pet.platform_utils.getScreenSize()
 
         self.physics = PetPhysics(self.screen_width, self.screen_height)
         self.tracker = WindowTracker(self.screen_width, self.screen_height)
+        self.tracker.always_on_top_enabled = self._always_on_top
 
         self.previous_bottom = 0.0
         self.command_queue: queue.Queue[tuple[str,
@@ -432,6 +454,8 @@ class PetWindow(QWidget):
         self._next_action_id: int = 1
 
         self.click_through_enabled = False
+        self._input_region_logged = False
+        self._last_local_hit_request_at = 0.0
         self.pointer_over_model = False
         self.last_model_hit_at = 0.0
         self.window_drag_active = False
@@ -477,7 +501,10 @@ class PetWindow(QWidget):
 
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.scan_desktop_windows)
-        self.scan_timer.start(1000 // 60)
+        # X11 上每次扫描是逐窗口的同步 X 往返（窗口多时会占满主线程帧预算），
+        # 因此 Linux 降到 12fps；Windows 走进程内 user32 调用，保持 60fps
+        scan_fps = 60 if pet.platform_utils.IS_WINDOWS else 12
+        self.scan_timer.start(1000 // scan_fps)
 
         self.physics_timer = QTimer(self)
         self.physics_timer.timeout.connect(self.update_physics)
@@ -486,13 +513,51 @@ class PetWindow(QWidget):
         self.click_through_timer = QTimer(self)
         self.click_through_timer.setInterval(30)
         self.click_through_timer.timeout.connect(self.sync_click_through_state)
-        self.click_through_timer.start()
+        # static-region 模式（Linux/X11）不需要这个轮询：穿透是靠固定输入区域实现的，
+        # 而且 Wayland 会话里 QCursor.pos() 是陈旧值，轮询会把窗口永久卡在穿透状态。
+        if pet.platform_utils.CLICK_THROUGH_SUPPORTED:
+            self.click_through_timer.start()
 
         self._start_global_mouse_listener()
+
+    def _model_input_region_rect(self) -> tuple[int, int, int, int]:
+        """模型身体所在的窗口内矩形 (x, y, width, height)。
+
+        以碰撞盒为基准，向上留出 _INPUT_REGION_PAD_TOP 让脑袋可以被摸，
+        左右各留 _INPUT_REGION_PAD_X。这个矩形之外的点击直接穿透到下层窗口。
+        """
+        left = COLLISION_OFFSET_LEFT - self._INPUT_REGION_PAD_X
+        top = COLLISION_OFFSET_TOP - self._INPUT_REGION_PAD_TOP
+        right = COLLISION_OFFSET_LEFT + COLLISION_WIDTH + self._INPUT_REGION_PAD_X
+        bottom = COLLISION_OFFSET_TOP + COLLISION_HEIGHT
+
+        left = int(clamp(left, 0, PET_WIDTH))
+        top = int(clamp(top, 0, PET_HEIGHT))
+        right = int(clamp(right, 0, PET_WIDTH))
+        bottom = int(clamp(bottom, 0, PET_HEIGHT))
+        return (left, top, max(1, right - left), max(1, bottom - top))
+
+    def _apply_model_input_region(self) -> None:
+        """把静态输入区域贴到窗口上（只有 static-region 模式需要）。"""
+        if pet.platform_utils.CLICK_THROUGH_MODE != "static-region":
+            return
+        try:
+            rect = self._model_input_region_rect()
+            ok = pet.platform_utils.setWindowInputRegion(int(self.winId()), rect)
+            if ok and not self._input_region_logged:
+                self._input_region_logged = True
+                pet.utils.log(f"已设置桌宠输入区域: {rect}", "INFO")
+        except Exception:
+            pet.utils.log(traceback.format_exc(), "ERROR")
 
     def showEvent(self, event):  # type: ignore
         super().showEvent(event)
         self.tracker.self_hwnd = int(self.winId())
+        # 窗口每次映射后都要重贴输入区域；延迟几次是为了盖过 Qt 自己在
+        # 映射过程中对 shape 的改动。
+        self._apply_model_input_region()
+        for delay in (0, 300, 1500):
+            QTimer.singleShot(delay, self._apply_model_input_region)
         self.scan_desktop_windows()
 
     def closeEvent(self, a0):
@@ -632,10 +697,31 @@ class PetWindow(QWidget):
             self.set_click_through(False)
         self.open_chat_window()
 
+    def _note_local_pointer_event(self, global_pos: QPoint) -> None:
+        """static-region 模式下用本地鼠标事件维护 pointer_over_model。
+
+        事件能进到窗口，就说明指针落在静态输入区域（模型身体框）内，先乐观
+        置位，再请求一次 webview 命中测试来修正（透明像素会被改回 False）。
+        """
+        if pet.platform_utils.CLICK_THROUGH_MODE != "static-region":
+            return
+        now = time.monotonic()
+        self.pointer_over_model = True
+        self.last_model_hit_at = now
+
+        # 命中测试要发 websocket，鼠标移动事件比 30ms 密集得多，这里限流到和
+        # Windows 轮询同样的节奏。
+        if now - self._last_local_hit_request_at < 0.03:
+            return
+        self._last_local_hit_request_at = now
+        local_pos = self.mapFromGlobal(global_pos)
+        _request_hit_test(local_pos.x(), local_pos.y())
+
     def eventFilter(self, watched, event):  # type: ignore
         if isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonPress:
                 pos = event.globalPosition().toPoint()
+                self._note_local_pointer_event(pos)
                 if event.button() == Qt.MouseButton.LeftButton:
                     self.handle_global_mouse_press(pos.x(), pos.y())
                     event.accept()
@@ -653,6 +739,7 @@ class PetWindow(QWidget):
 
             elif event.type() == QEvent.Type.MouseMove:
                 pos = event.globalPosition().toPoint()
+                self._note_local_pointer_event(pos)
                 if self.window_drag_active:
                     self.handle_global_mouse_move(pos.x(), pos.y())
                     event.accept()
@@ -1360,6 +1447,14 @@ class PetWindow(QWidget):
                 self.ai_follow = None
 
     def handle_model_hit_tested(self, hovering_model: bool, x: int, y: int):
+        if pet.platform_utils.CLICK_THROUGH_MODE == "static-region":
+            # Linux/XWayland：QCursor.pos() 在 Wayland 会话下是陈旧值，拿它做
+            # 一致性校验会把所有命中结果都丢掉。这里直接信任 webview 回传的
+            # 窗口内坐标，穿透本身由静态输入区域负责。
+            self.pointer_over_model = hovering_model
+            self.last_model_hit_at = time.monotonic()
+            return
+
         cursor_pos = QCursor.pos()
         local_pos = cursor_pos - self.frameGeometry().topLeft()
 
@@ -1481,7 +1576,7 @@ class PetWindow(QWidget):
             pass
 
     def sync_click_through_state(self):
-        if sys.platform != "win32":
+        if not pet.platform_utils.CLICK_THROUGH_SUPPORTED:
             return
 
         if self.window_drag_active:
@@ -1502,27 +1597,34 @@ class PetWindow(QWidget):
         _request_hit_test(local_pos.x(), local_pos.y())
 
     def set_click_through(self, enabled: bool):
-        if sys.platform != "win32":
+        if not pet.platform_utils.CLICK_THROUGH_SUPPORTED:
             return
 
         if enabled == self.click_through_enabled:
             return
 
         self.click_through_enabled = enabled
-        hwnd = int(self.winId())
+        pet.platform_utils.setWindowClickThrough(self, enabled)
 
-        GWL_EXSTYLE = -20
-        WS_EX_LAYERED = 0x80000
-        WS_EX_TRANSPARENT = 0x20
+    def set_always_on_top(self, enabled: bool) -> None:
+        """切换桌宠窗口是否始终置顶（托盘菜单"置顶显示"勾选项调用）。
 
-        current_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        setWindowFlag 会重新创建原生窗口，隐式隐藏它，所以要先记下当前位置和
+        显示状态，改完 flag 后手动恢复——跟 set_click_through 用的是同一套模式。
+        重新映射后 showEvent 会自动重贴 static-region 输入区域，这里不用管。
+        同时把开关同步给 tracker：像 climb/drag 期间的"临时置顶"逻辑不应该在
+        用户关闭置顶后仍然把桌宠强制顶到最上层。
+        """
+        enabled = bool(enabled)
+        self._always_on_top = enabled
+        self.tracker.always_on_top_enabled = enabled
 
-        if enabled:
-            new_style = current_style | WS_EX_LAYERED | WS_EX_TRANSPARENT
-        else:
-            new_style = (current_style | WS_EX_LAYERED) & ~WS_EX_TRANSPARENT
-
-        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+        was_visible = self.isVisible()
+        x, y = self.x(), self.y()
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
+        self.move(x, y)
+        if was_visible:
+            self.show()
 
     def _check_drag_end_and_play_anim(self) -> None:
         """检查拖拽结束后桌宠是否已落地，是则播放end_drag动画。"""
@@ -1645,18 +1747,65 @@ class PetWindow(QWidget):
         self._waiting_for_land_after_drag = True
         self._drag_end_wait_started_at = time.monotonic()
 
+    def _is_point_in_input_region(self, x: int, y: int) -> bool:
+        """屏幕坐标是否落在静态输入区域（模型身体框）内。"""
+        rx, ry, rw, rh = self._model_input_region_rect()
+        left = self.x() + rx
+        top = self.y() + ry
+        return left <= x < left + rw and top <= y < top + rh
+
+    def _pointer_is_on_model(self, x: int, y: int) -> bool:
+        """判断这个屏幕坐标算不算"点在桌宠身上"。
+
+        static-region 模式下，落在输入区域内本身就是充分证据：X 会把这个
+        区域内的点击派发给我们，区域外的点击根本不会到达。不能只依赖
+        _is_recently_over_model()——命中测试是异步的，指针停住不动时状态
+        会在 0.25s 后过期，那样"悬停一会儿再按下"就拖不动了。
+        """
+        if self._is_recently_over_model():
+            return True
+        if pet.platform_utils.CLICK_THROUGH_MODE == "static-region":
+            return self._is_point_in_input_region(x, y)
+        return False
+
+    def _note_global_pointer_position(self, x: int, y: int) -> None:
+        """用全局指针位置维护 pointer_over_model（static-region 模式）。
+
+        Linux/XWayland 上 Qt 的 eventFilter 拿不到桌宠窗口的鼠标事件
+        （webView.focusProxy() 在 __init__ 时还是 None，事件过滤器装不上
+        真正收事件的那个内部控件），而 QCursor.pos() 在 Wayland 会话下又是
+        陈旧值。pynput 的全局事件流是这里唯一可靠的指针来源。
+        """
+        if pet.platform_utils.CLICK_THROUGH_MODE != "static-region":
+            return
+
+        if not self._is_point_in_input_region(x, y):
+            self.pointer_over_model = False
+            return
+
+        now = time.monotonic()
+        self.pointer_over_model = True
+        self.last_model_hit_at = now
+
+        # 命中测试要走 websocket，这里限流到和 Windows 那个 30ms 轮询同样的节奏
+        if now - self._last_local_hit_request_at < 0.03:
+            return
+        self._last_local_hit_request_at = now
+        _request_hit_test(int(x) - self.x(), int(y) - self.y())
+
     def handle_global_mouse_press(self, x, y):
         window_rect = self.frameGeometry()
         if not window_rect.contains(QPoint(x, y)):
             return
 
-        if not self._is_recently_over_model():
+        if not self._pointer_is_on_model(x, y):
             return
 
         self._last_left_pressed = True
         self._start_physics_drag(x, y)
 
     def handle_global_mouse_move(self, x, y):
+        self._note_global_pointer_position(x, y)
         self._move_physics_drag(x, y)
 
     def handle_global_mouse_release(self, x, y):

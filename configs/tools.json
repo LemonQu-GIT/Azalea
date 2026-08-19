@@ -40,7 +40,7 @@
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "要执行的系统命令，命令将在Windows的cmd环境中执行。"
+                        "description": "要执行的系统命令。Windows 下在 cmd 环境中执行，Linux 下在系统默认 shell（sh）中执行，请使用对应平台的命令。"
                     }
                 },
                 "required": [

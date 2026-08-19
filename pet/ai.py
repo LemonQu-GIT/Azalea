@@ -15,6 +15,7 @@ import pet.tool_calling
 from pet.ai_utils import Actions
 
 _active_window = None
+_screenshot_unavailable_logged = False
 config = pet.utils.loadConfig()
 
 chat_sys_prompt = pet.ai_utils.chat_sys_prompt
@@ -121,8 +122,19 @@ async def ai_brain_core(action: Actions | None = None):
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             now_time = time.time()
 
-            screenshot = await asyncio.to_thread(pyautogui.screenshot)
-            screenshot_base64 = pet.ai_utils.img2base64(screenshot)
+            try:
+                screenshot = await asyncio.to_thread(pyautogui.screenshot)
+                screenshot_base64 = pet.ai_utils.img2base64(screenshot)
+            except Exception:
+                # Linux/Wayland 可能没有可用截屏后端（如缺 gnome-screenshot），
+                # 没有"视觉"时继续决策，不附带截图
+                global _screenshot_unavailable_logged
+                if not _screenshot_unavailable_logged:
+                    _screenshot_unavailable_logged = True
+                    pet.utils.log(
+                        "截屏不可用（Linux 需要 gnome-screenshot），AI 将在无桌面视觉的情况下运行",
+                        "WARNING", save=False)
+                screenshot_base64 = None
 
             # ========= 优先级：用户聊天 > 摸头 > 计划触发 > 常规 idle =========
             # 全部统一进入 control_reply 大脑决策，不再绕过大脑
@@ -171,13 +183,15 @@ async def ai_brain_core(action: Actions | None = None):
             elif config['llm']['talk_frequency'] == "high":
                 assembled_content = "用户希望桌宠尽量多说话。" + assembled_content
 
+            control_user_content = [
+                {"type": "text", "text": assembled_content}]
+            if screenshot_base64 is not None:
+                control_user_content.append(
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/jpeg;base64,{screenshot_base64}"}})
             control_messages.append({
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": assembled_content},
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:image/jpeg;base64,{screenshot_base64}"}},
-                ],
+                "content": control_user_content,
             })
 
             control_reply = str(await _to_thread_kw(
@@ -219,7 +233,11 @@ async def ai_brain_core(action: Actions | None = None):
                                 chat_messages.append(
                                     mem_sys_prompt)  # type:ignore
 
-                            chat_ss = await asyncio.to_thread(pyautogui.screenshot)
+                            try:
+                                chat_ss = await asyncio.to_thread(
+                                    pyautogui.screenshot)
+                            except Exception:
+                                chat_ss = None
                             if user_triggered and this_round_user_msg:
                                 chat_user_prompt_text = f"现在是:{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。用户主动给你发了消息：\n'''{this_round_user_msg}'''\n大脑给出的对话原因：{reason}"
                             elif head_pat_triggered:
@@ -227,13 +245,15 @@ async def ai_brain_core(action: Actions | None = None):
                             else:
                                 chat_user_prompt_text = f"现在是:{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。大脑指令对话原因：{reason}"
 
+                            chat_user_content = [
+                                {"type": "text", "text": chat_user_prompt_text}]
+                            if chat_ss is not None:
+                                chat_user_content.append(
+                                    {"type": "image_url",
+                                     "image_url": {"url": f"data:image/jpeg;base64,{pet.ai_utils.img2base64(chat_ss)}"}})
                             chat_prompt = {
                                 "role": "user",
-                                "content": [
-                                    {"type": "text", "text": chat_user_prompt_text},
-                                    {"type": "image_url",
-                                     "image_url": {"url": f"data:image/jpeg;base64,{pet.ai_utils.img2base64(chat_ss)}"}},
-                                ],
+                                "content": chat_user_content,
                             }
                             chat_messages.append(chat_prompt)  # type:ignore
 

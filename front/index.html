@@ -156,11 +156,68 @@
         renderer.domElement.addEventListener(name, handler);
       });
 
-      scene.add(new THREE.AmbientLight(0xffffff, 1.8));
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      // 光照默认值：与 /render_config 返回的 configs/config.json 3dmodel.light
+      // 保持一致，仅作为请求失败时的兜底（fail-safe fallback）。
+      const DEFAULT_LIGHT_CONFIG = {
+        directional_intensity: 1.4,
+        ambient_intensity: 0.9,
+        ambient_warmth: 35,
+      };
+      // 环境光暖色：0 = 中性白，100 = 暖橙（按 ambient_warmth 在两者间插值）
+      const LIGHT_COLOR_NEUTRAL = new THREE.Color(0xffffff);
+      const LIGHT_COLOR_WARM = new THREE.Color(0xffb347);
 
-      dirLight.position.set(2, 5, 5);
+      function computeAmbientColor(warmthPct) {
+        const t = Math.min(1, Math.max(0, Number(warmthPct) / 100));
+        return LIGHT_COLOR_NEUTRAL.clone().lerp(LIGHT_COLOR_WARM, t);
+      }
+
+      const ambientLight = new THREE.AmbientLight(
+        computeAmbientColor(DEFAULT_LIGHT_CONFIG.ambient_warmth),
+        DEFAULT_LIGHT_CONFIG.ambient_intensity,
+      );
+      scene.add(ambientLight);
+
+      // 模拟从右上方打来的主光源（方向由固定位置决定，位置本身不可配置，
+      // 可配置的只有强度——见 applyLightConfig）
+      const dirLight = new THREE.DirectionalLight(
+        0xffffff,
+        DEFAULT_LIGHT_CONFIG.directional_intensity,
+      );
+      dirLight.position.set(1.5, 2.0, 1.0);
       scene.add(dirLight);
+
+      // 调试用全局句柄：模块作用域对 DevTools/远程调试不可见，
+      // 通过 window.azalea 暴露场景对象便于线上排查渲染问题
+      window.azalea = {
+        scene,
+        ambientLight,
+        dirLight,
+        get model() {
+          return model;
+        },
+      };
+
+      function applyLightConfig(cfg) {
+        if (!cfg) return;
+        if (typeof cfg.directional_intensity === "number") {
+          dirLight.intensity = cfg.directional_intensity;
+        }
+        if (typeof cfg.ambient_intensity === "number") {
+          ambientLight.intensity = cfg.ambient_intensity;
+        }
+        if (typeof cfg.ambient_warmth === "number") {
+          ambientLight.color.copy(computeAmbientColor(cfg.ambient_warmth));
+        }
+      }
+
+      // 启动时从服务端拉取持久化的光照配置；请求失败时保留上面的默认值
+      fetch("/render_config")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && data.light) applyLightConfig(data.light);
+        })
+        .catch(() => {});
 
       const raycaster = new THREE.Raycaster();
       const mouse = new THREE.Vector2();
@@ -205,6 +262,52 @@
                 emissiveMap: mat.emissiveMap,
                 emissiveIntensity: mat.emissiveIntensity,
               });
+              toonMat.name = mat.name;
+
+              if (mat.name === "Mouth") {
+                // 根因（已用 CDP 逐项排查确认，不是深度测试/遮挡/光照/朝向/
+                // frustum culling 问题——这些单独或组合测试过全都无效）：
+                // 在本机的软件 GL（Mesa/llvmpipe，日志里 Vulkan 初始化失败
+                // 已经暴露了这个环境是纯软件渲染）上，GLTFLoader 把解码出的
+                // ImageBitmap 直接交给 WebGL 上传后，这张贴图在 GPU 侧整体
+                // 采样结果是全透明——即使贴图本身的像素数据是对的（离线用
+                // PIL 和浏览器端 canvas 回读都验证过，嘴形在正确的 UV 区域
+                // 里，alpha 有效值高达 255）。用一个 2D canvas 把同样的图像
+                // 重新画一遍再包成 CanvasTexture，走的是另一条上传路径，
+                // 绕开了这个平台特定的贴图上传问题。
+                if (mat.map && mat.map.image) {
+                  const srcImg = mat.map.image;
+                  const canvas = document.createElement("canvas");
+                  canvas.width = srcImg.width;
+                  canvas.height = srcImg.height;
+                  const ctx = canvas.getContext("2d");
+                  ctx.drawImage(srcImg, 0, 0);
+                  const canvasTex = new THREE.CanvasTexture(canvas);
+                  canvasTex.flipY = mat.map.flipY;
+                  canvasTex.colorSpace = mat.map.colorSpace;
+                  canvasTex.needsUpdate = true;
+                  toonMat.map = canvasTex;
+                }
+
+                // 嘴部还是与脸部共面的透明贴片（decal），保留深度写入/多边形
+                // 偏移调整以避免和脸部之间出现 z-fighting 闪烁。
+                toonMat.transparent = true;
+                toonMat.depthWrite = false;
+                toonMat.polygonOffset = true;
+                toonMat.polygonOffsetFactor = -2;
+                toonMat.polygonOffsetUnits = -2;
+                child.renderOrder = 1;
+                // 嘴部贴图是 8x8 精灵图集，游戏引擎在运行时用 UV 偏移选择
+                // 口型；GLB 导出把 UV 冻结在图集空白处，所以嘴不可见。
+                // 这里把采样窗口平移到一个自然的默认口型上
+                if (toonMat.map) {
+                  toonMat.map = toonMat.map.clone();
+                  // (0.125, 0) = 图集第 2 列同一行：张口微笑（开心表情）。
+                  // (0.125, 0.25) 是惊讶张嘴，(0.375/0.5, 0) 是"o"型嘴
+                  toonMat.map.offset.set(0.125, 0.0);
+                  toonMat.map.needsUpdate = true;
+                }
+              }
 
               let outlineColorArray = [0.2, 0.1, 0.1];
               if (mat.color) {
@@ -255,6 +358,8 @@
           mixer: mixer,
           getCurrentAction: () => currentAction,
           switchAnimation: switchAnimation,
+          scene: scene,
+          model: model,
         };
         console.log(
           'window.THREE_DEBUG.switchAnimation("CH0069_Cafe_Idle", true);',
@@ -375,6 +480,8 @@
           updateModelTransform(data);
         } else if (data.command === "set_camera") {
           updateCameraPosition(data.position);
+        } else if (data.command === "set_light") {
+          applyLightConfig(data);
         } else if (data.command === "hit_test") {
           const hoveringModel = isPointOnModel(data.x, data.y);
           if (ws.readyState === WebSocket.OPEN) {

@@ -24,8 +24,13 @@ register_request_hit_test(request_hit_test)
 register_send_command_threadsafe(ws_manager.broadcast_threadsafe)
 
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
-# ctypes.windll.user32.SetProcessDPIAware()
+if sys.platform == "win32":
+    os.environ["QT_QPA_PLATFORM"] = "windows:dpiawareness=3"
+    # ctypes.windll.user32.SetProcessDPIAware()
+elif sys.platform.startswith("linux") and not os.environ.get("QT_QPA_PLATFORM"):
+    # 桌宠依赖绝对窗口定位（物理、拖拽、贴边），Wayland 原生协议不允许客户端
+    # 自行定位窗口，因此在 Linux 上默认走 X11/XWayland
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
 def _ensure_queue_bridge_ready(timeout_s: float = 8.0, _started_at: list[float] | None = None):
@@ -64,6 +69,14 @@ def main():
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+
+    if sys.platform.startswith("linux") and app.platformName() != "xcb":
+        # 静态输入区域（点击/拖拽/穿透）依赖 X11 SHAPE，wayland 插件下 winId
+        # 不是 X 窗口 id，穿透会静默失效，桌宠整个矩形都会挡住鼠标
+        _pet_utils.log(
+            f"当前 Qt 平台为 {app.platformName()}（非 xcb），点击穿透与窗口交互将退化；"
+            "请勿显式设置 QT_QPA_PLATFORM=wayland",
+            "WARNING")
 
     _tts_sound_entries: list[tuple[QSoundEffect, str]] = []
 

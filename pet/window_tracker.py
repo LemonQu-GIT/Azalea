@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import sys
 import time
 import traceback
 from dataclasses import dataclass
 
-import win32con
-import win32gui
-import ctypes
-
 from pet.constants import WINDOW_TITLE
-import pet.windows_utils
+import pet.platform_utils
 from pet.constants import STEP_SECONDS
 from pet.physics import PetPhysics, WindowBouncePhysics, COLLISION_WIDTH, COLLISION_HEIGHT
 
 
-ctypes.windll.user32.SetProcessDPIAware()
+if sys.platform == "win32":
+    import ctypes
+
+    ctypes.windll.user32.SetProcessDPIAware()
 
 
 @dataclass
@@ -65,6 +65,12 @@ class WindowTracker:
         self.temporary_topmost_until = 0.0
         self.is_temporarily_topmost = False
         self.is_drag_topmost = False
+
+        # 由 PetWindow.set_always_on_top 实时更新（不是每帧重读配置）。
+        # 为 False 时，下面所有"强制置顶"的调用都不再把桌宠顶到最上层；
+        # 但 sync_z_order_to_container 之类维护"贴在特定窗口上方"的相对
+        # 层级逻辑与这个开关无关，不受影响。
+        self.always_on_top_enabled = True
 
         self.window_bounce: WindowBouncePhysics | None = None
         self.window_bounce_pending_hwnd: int | None = None
@@ -133,7 +139,7 @@ class WindowTracker:
         previous_bottom: float | None = None,
     ) -> None:
         self.self_hwnd = self_hwnd
-        rects = pet.windows_utils.getAllWindowsRects()
+        rects = pet.platform_utils.getAllWindowsRects()
         windows: list[DesktopWindow] = []
 
         for z_index, (title, hwnd, x, y, width, height) in enumerate(rects):
@@ -370,14 +376,9 @@ class WindowTracker:
         self._arm_window_bounce_pending(landed.hwnd, abs(float(vy)))
 
     def start_window_bounce(self, hwnd: int, impact_speed: float | None = None) -> None:
-        from ctypes import wintypes
-        rect_struct = wintypes.RECT()
-        ok = ctypes.windll.user32.GetWindowRect(
-            ctypes.wintypes.HWND(hwnd), ctypes.byref(rect_struct))
-        if not ok:
+        rect = pet.platform_utils.getWindowRect(hwnd)
+        if rect[0] is None or rect[1] is None or rect[2] is None or rect[3] is None:
             return
-        rect = (rect_struct.left, rect_struct.top,
-                rect_struct.right, rect_struct.bottom)
         self._log(f"start_window_bounce hwnd={hwnd} rect={rect}")
 
         self.window_bounce = WindowBouncePhysics(
@@ -406,7 +407,7 @@ class WindowTracker:
             f"window bounce step hwnd={bounce.hwnd} offset_y={offset_y:.2f} finished={finished} origin_top={bounce.origin_top}"
         )
         if offset_y != 0.0:
-            pet.windows_utils.transformWindow(
+            pet.platform_utils.transformWindow(
                 bounce.hwnd,
                 y=bounce.origin_top + round(offset_y),
             )
@@ -425,7 +426,7 @@ class WindowTracker:
 
         if finished:
             try:
-                pet.windows_utils.transformWindow(
+                pet.platform_utils.transformWindow(
                     bounce.hwnd,
                     x=bounce.origin_left,
                     y=bounce.origin_top,
@@ -484,7 +485,7 @@ class WindowTracker:
         try:
             hwnds = [
                 hwnd
-                for hwnd in pet.windows_utils.getWindowsInZOrder()
+                for hwnd in pet.platform_utils.getWindowsInZOrder()
                 if hwnd != self.self_hwnd
             ]
             container_index = hwnds.index(container_hwnd)
@@ -492,7 +493,7 @@ class WindowTracker:
             return
 
         insert_after = (
-            win32con.HWND_TOP
+            pet.platform_utils.WINDOW_Z_TOP
             if container_index == 0
             else hwnds[container_index - 1]
         )
@@ -502,21 +503,7 @@ class WindowTracker:
         if self.self_hwnd is None:
             return
 
-        try:
-            win32gui.SetWindowPos(
-                self.self_hwnd,
-                insert_after,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOMOVE
-                | win32con.SWP_NOSIZE
-                | win32con.SWP_NOACTIVATE,
-            )
-        except Exception:
-            # traceback.print_exc()
-            pass
+        pet.platform_utils.setWindowZOrderAfter(self.self_hwnd, insert_after)
 
     def activate_temporary_topmost(self) -> None:
         self.temporary_topmost_until = time.monotonic() + 0.45
@@ -525,33 +512,12 @@ class WindowTracker:
         if self.self_hwnd is None:
             return
 
+        # 用户关闭了"置顶显示"：拖拽期间也不强制把桌宠顶到最上层
+        effective_enable = enable and self.always_on_top_enabled
+
         try:
-            if enable:
-                win32gui.SetWindowPos(
-                    self.self_hwnd,
-                    win32con.HWND_TOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    win32con.SWP_NOMOVE
-                    | win32con.SWP_NOSIZE
-                    | win32con.SWP_NOACTIVATE,
-                )
-                self.is_drag_topmost = True
-            else:
-                win32gui.SetWindowPos(
-                    self.self_hwnd,
-                    win32con.HWND_NOTOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    win32con.SWP_NOMOVE
-                    | win32con.SWP_NOSIZE
-                    | win32con.SWP_NOACTIVATE,
-                )
-                self.is_drag_topmost = False
+            pet.platform_utils.setWindowTopmost(self.self_hwnd, effective_enable)
+            self.is_drag_topmost = effective_enable
         except Exception:
             pass
 
@@ -559,20 +525,19 @@ class WindowTracker:
         if self.self_hwnd is None:
             return
 
+        if not self.always_on_top_enabled:
+            # 置顶已关闭：确保不残留强制置顶状态，其余逻辑（临时置顶）全部跳过
+            if self.is_temporarily_topmost:
+                pet.platform_utils.setWindowTopmost(self.self_hwnd, False)
+                self.is_temporarily_topmost = False
+                if self.active_container_hwnd is not None:
+                    self.sync_z_order_to_container(self.active_container_hwnd)
+            return
+
         # 拖拽期间始终置顶
         if self.is_drag_topmost:
             if not self.is_temporarily_topmost:
-                win32gui.SetWindowPos(
-                    self.self_hwnd,
-                    win32con.HWND_TOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    win32con.SWP_NOMOVE
-                    | win32con.SWP_NOSIZE
-                    | win32con.SWP_NOACTIVATE,
-                )
+                pet.platform_utils.setWindowTopmost(self.self_hwnd, True)
                 self.is_temporarily_topmost = True
             return
 
@@ -582,32 +547,12 @@ class WindowTracker:
         )
 
         if should_be_topmost:
-            win32gui.SetWindowPos(
-                self.self_hwnd,
-                win32con.HWND_TOPMOST,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOMOVE
-                | win32con.SWP_NOSIZE
-                | win32con.SWP_NOACTIVATE,
-            )
+            pet.platform_utils.setWindowTopmost(self.self_hwnd, True)
             self.is_temporarily_topmost = True
             return
 
         if self.is_temporarily_topmost:
-            win32gui.SetWindowPos(
-                self.self_hwnd,
-                win32con.HWND_NOTOPMOST,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOMOVE
-                | win32con.SWP_NOSIZE
-                | win32con.SWP_NOACTIVATE,
-            )
+            pet.platform_utils.setWindowTopmost(self.self_hwnd, False)
             self.is_temporarily_topmost = False
 
             if self.active_container_hwnd is not None:
@@ -615,17 +560,7 @@ class WindowTracker:
 
     def cleanup_topmost(self) -> None:
         if self.self_hwnd is not None and (self.is_temporarily_topmost or self.is_drag_topmost):
-            win32gui.SetWindowPos(
-                self.self_hwnd,
-                win32con.HWND_NOTOPMOST,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOMOVE
-                | win32con.SWP_NOSIZE
-                | win32con.SWP_NOACTIVATE,
-            )
+            pet.platform_utils.setWindowTopmost(self.self_hwnd, False)
             self.is_temporarily_topmost = False
             self.is_drag_topmost = False
 

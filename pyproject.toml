@@ -14,7 +14,7 @@ dependencies = [
     "Pillow",
     "pyautogui",
     "pydantic",
-    "simpleaudio",
+    "simpleaudio ; sys_platform == 'win32'",
     "pyglet",
     "pymunk",
     "pynput",
@@ -22,10 +22,12 @@ dependencies = [
     "pyqt6_fluent_widgets",
     "PyQt6-WebEngine",
     "pyqt6_sip",
-    "pywin32",
+    "pywin32 ; sys_platform == 'win32'",
+    "python-xlib ; sys_platform == 'linux'",
     "Requests",
     "rich",
     "uvicorn>=0.52.1",
+    "websockets",
 ]
 [project.optional-dependencies]
 local = ["genie-tts", "sentence-transformers", "faiss-cpu"]

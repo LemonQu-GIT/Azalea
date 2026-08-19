@@ -228,3 +228,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# 本地配置与运行时状态
+configs/config.json
+configs/theme.json
+.omc/
