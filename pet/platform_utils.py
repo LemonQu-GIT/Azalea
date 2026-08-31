@@ -1,7 +1,7 @@
 """跨平台窗口工具的统一入口。
 
-Windows 上全部委托给 :mod:`pet.windows_utils`（行为与移植前完全一致），
-其它平台（Linux/X11）委托给 :mod:`pet.linux_utils`。
+Windows 上委托给 :mod:`pet.windows_utils`，Linux/X11 委托给
+:mod:`pet.linux_utils`，macOS 委托给 :mod:`pet.macos_utils`。
 
 对外暴露的 API：
     get_theme_color / get_windows_theme_color
@@ -18,6 +18,7 @@ import sys
 
 IS_WINDOWS = sys.platform == "win32"
 IS_LINUX = sys.platform.startswith("linux")
+IS_MACOS = sys.platform == "darwin"
 
 if IS_WINDOWS:
     import win32con
@@ -29,22 +30,32 @@ if IS_WINDOWS:
     _SWP_FLAGS = (
         win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
     )
-else:
+elif IS_LINUX:
     import pet.linux_utils as _impl
 
     WINDOW_Z_TOP = 0
     _SWP_FLAGS = 0
+elif IS_MACOS:
+    import pet.macos_utils as _impl
+
+    WINDOW_Z_TOP = 0
+    _SWP_FLAGS = 0
+else:
+    raise RuntimeError(f"Unsupported desktop platform: {sys.platform}")
 
 def _detect_click_through_mode() -> str:
     """点击穿透的实现方式。
 
     - ``"dynamic"``  (Windows) 按指针位置实时切换 WS_EX_TRANSPARENT。
+    - ``"dynamic"``  (macOS) 按指针位置实时切换 NSWindow 鼠标忽略状态。
     - ``"static-region"`` (Linux/X11) 用 SHAPE 扩展一次性设定输入区域。
       Wayland 会话里全局指针位置是陈旧的，动态方案会永久卡在穿透状态，
       所以这里必须用静态区域。
     - ``"none"``     没有可用方案，窗口整体可点击。
     """
     if IS_WINDOWS:
+        return "dynamic"
+    if IS_MACOS and _impl.is_available():
         return "dynamic"
     if IS_LINUX and _impl.has_input_shape():
         return "static-region"
@@ -105,6 +116,28 @@ def transformWindow(
 
 def getScreenSize() -> tuple[int, int]:
     return _impl.getScreenSize()
+
+
+def getDesktopBounds() -> tuple[int, int, int, int]:
+    """返回虚拟桌面的逻辑坐标边界。"""
+    getter = getattr(_impl, "getDesktopBounds", None)
+    if getter is not None:
+        return getter()
+    width, height = getScreenSize()
+    return (0, 0, width, height)
+
+
+def getWindowHandle(window) -> int:
+    """返回平台窗口枚举所使用的原生句柄。"""
+    getter = getattr(_impl, "getWindowHandle", None)
+    if getter is not None:
+        return int(getter(window))
+    return int(window.winId())
+
+
+def isAccessibilityTrusted() -> bool:
+    checker = getattr(_impl, "is_accessibility_trusted", None)
+    return bool(checker()) if checker is not None else True
 
 
 def setWindowTopmost(handle: int, topmost: bool) -> bool:
@@ -224,6 +257,9 @@ def setWindowClickThrough(window, enabled: bool) -> bool:
             return True
         except Exception:
             return False
+
+    if IS_MACOS:
+        return _impl.setWindowClickThrough(window, enabled)
 
     if not IS_LINUX:
         return False

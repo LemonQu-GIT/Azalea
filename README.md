@@ -39,7 +39,8 @@ GPT-SoVITS Model by [**@SLNeil**](https://space.bilibili.com/523537077)
 ## 环境要求
 
 - Python **≥ 3.12**
-- 支持 Windows 与 Linux（~~我没有经济实力使用 Mac~~）。Linux 推荐使用 X11；在 Wayland 下窗口交互相关功能会优雅降级
+- 支持 Windows、Linux 与 macOS。Linux 推荐使用 X11；在 Wayland 下窗口交互相关功能会优雅降级
+- macOS 首次运行建议在“系统设置 → 隐私与安全性 → 辅助功能”中授权当前终端或打包后的应用；未授权时仍可显示和跟踪窗口，但全局鼠标监听、移动其他应用窗口等功能会降级
 - Ollama 或 OpenAI 兼容的 API
 - （可选）Genie-TTS 本地语音合成 API
 - （可选）Embedding 本地词向量 API
@@ -90,6 +91,12 @@ copy configs\config.example.json configs\config.json
 ```
 
 Linux：
+
+```bash
+cp configs/config.example.json configs/config.json
+```
+
+macOS：
 
 ```bash
 cp configs/config.example.json configs/config.json

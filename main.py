@@ -17,6 +17,7 @@ from pet.tray import SystemTray
 from pet.server import ws_manager
 from pet.pet_api import request_hit_test
 from pet.signals import emitter as _signals_emitter
+import pet.platform_utils as _platform_utils
 import pet.server as _pet_server_module
 import pet.utils as _pet_utils
 
@@ -77,6 +78,12 @@ def main():
             f"当前 Qt 平台为 {app.platformName()}（非 xcb），点击穿透与窗口交互将退化；"
             "请勿显式设置 QT_QPA_PLATFORM=wayland",
             "WARNING")
+    elif sys.platform == "darwin" and not _platform_utils.isAccessibilityTrusted():
+        _pet_utils.log(
+            "尚未授予辅助功能权限：全局鼠标监听和移动其他应用窗口将不可用；"
+            "桌宠显示、渲染和窗口位置跟踪仍可使用",
+            "WARNING",
+        )
 
     _tts_sound_entries: list[tuple[QSoundEffect, str]] = []
 

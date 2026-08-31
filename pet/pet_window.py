@@ -163,7 +163,9 @@ class ChatBubble(QWidget):
         # 气泡已经显示时再来一条消息不会触发 showEvent，这里补一次
         self._apply_click_through_region()
         try:
-            pet.platform_utils.raiseWindowToTop(int(self.winId()))
+            pet.platform_utils.raiseWindowToTop(
+                pet.platform_utils.getWindowHandle(self)
+            )
         except Exception:
             pass
 
@@ -552,7 +554,7 @@ class PetWindow(QWidget):
 
     def showEvent(self, event):  # type: ignore
         super().showEvent(event)
-        self.tracker.self_hwnd = int(self.winId())
+        self.tracker.self_hwnd = pet.platform_utils.getWindowHandle(self)
         # 窗口每次映射后都要重贴输入区域；延迟几次是为了盖过 Qt 自己在
         # 映射过程中对 shape 的改动。
         self._apply_model_input_region()
@@ -599,7 +601,10 @@ class PetWindow(QWidget):
             )
 
     def scan_desktop_windows(self):
-        self.tracker.scan_desktop_windows(int(self.winId()), self.physics)
+        self.tracker.scan_desktop_windows(
+            pet.platform_utils.getWindowHandle(self),
+            self.physics,
+        )
 
     def update_physics(self):
         gx, gy = self.physics.body.position
