@@ -87,6 +87,10 @@ class ChatBubble(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.NoDropShadowWindowHint
         )
+        if sys.platform == "darwin":
+            self.setAttribute(
+                Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow
+            )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -117,6 +121,9 @@ class ChatBubble(QWidget):
 
     def showEvent(self, a0):  # type: ignore
         super().showEvent(a0)
+        pet.platform_utils.configureWindow(self, topmost=True)
+        if pet.platform_utils.CLICK_THROUGH_MODE == "dynamic":
+            pet.platform_utils.setWindowClickThrough(self, True)
         # 每次重新映射后都要重贴（Qt 会在映射过程中自己动 shape）
         self._apply_click_through_region()
         QTimer.singleShot(0, self._apply_click_through_region)
@@ -298,6 +305,10 @@ class ChatWindow(QWidget):
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowStaysOnTopHint
         )
+        if sys.platform == "darwin":
+            self.setAttribute(
+                Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow
+            )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedSize(CHAT_WINDOW_WIDTH, CHAT_WINDOW_HEIGHT)
@@ -337,6 +348,7 @@ class ChatWindow(QWidget):
         self._refresh_position()
         self._follow_timer.start()
         super().show()
+        pet.platform_utils.configureWindow(self, topmost=True)
         self.raise_()
         self.activateWindow()
         # 让输入框聚焦
@@ -417,6 +429,10 @@ class PetWindow(QWidget):
         if self._always_on_top:
             window_flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(window_flags)
+        if sys.platform == "darwin":
+            self.setAttribute(
+                Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow
+            )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
         self.setFixedSize(PET_WIDTH, PET_HEIGHT)
@@ -554,6 +570,10 @@ class PetWindow(QWidget):
 
     def showEvent(self, event):  # type: ignore
         super().showEvent(event)
+        pet.platform_utils.configureWindow(
+            self,
+            topmost=self._always_on_top,
+        )
         self.tracker.self_hwnd = pet.platform_utils.getWindowHandle(self)
         # 窗口每次映射后都要重贴输入区域；延迟几次是为了盖过 Qt 自己在
         # 映射过程中对 shape 的改动。
@@ -681,11 +701,14 @@ class PetWindow(QWidget):
         - 负责：范围判定 → 关闭穿透 → 打开对话框。
         - **注意：当右键被用于摸头手势（达到摸头累计移动阈值）时，本函数不应该再打开对话框，
           靠摸头手势触发时已经调用过 _head_pat_mark_used 来吃掉后续右键点击打开窗口。"""
+        now_ts = time.monotonic()
+        if now_ts - self._last_head_pat_at < 0.5:
+            self._head_pat_suppress_click = False
+            return
         if getattr(self, "_head_pat_suppress_click", False):
             self._head_pat_suppress_click = False
             return
         # 防抖 300ms，避免 eventFilter 源 + pynput 源触发两次打开
-        now_ts = time.monotonic()
         last_ts = getattr(self, "_last_right_click_open_at", 0.0)
         if now_ts - last_ts < 0.3:
             return
@@ -780,7 +803,7 @@ class PetWindow(QWidget):
                     self._right_press_over_model = False
 
                     if triggered_pat:
-                        # 吃掉本次右键点击打开对话框的动作（置位，让 handler 里跳过）
+                        # 吃掉来自 Qt / WebSocket / pynput 的重复右键释放。
                         self._head_pat_suppress_click = True
                     else:
                         self._head_pat_suppress_click = False
@@ -1630,6 +1653,7 @@ class PetWindow(QWidget):
         self.move(x, y)
         if was_visible:
             self.show()
+            pet.platform_utils.configureWindow(self, topmost=enabled)
 
     def _check_drag_end_and_play_anim(self) -> None:
         """检查拖拽结束后桌宠是否已落地，是则播放end_drag动画。"""

@@ -140,6 +140,34 @@ def isAccessibilityTrusted() -> bool:
     return bool(checker()) if checker is not None else True
 
 
+def isInputMonitoringTrusted() -> bool:
+    checker = getattr(_impl, "is_input_monitoring_trusted", None)
+    return bool(checker()) if checker is not None else True
+
+
+def requestPermissions() -> tuple[bool, bool]:
+    request = getattr(_impl, "request_permissions", None)
+    if request is None:
+        return True, True
+    return request()
+
+
+def configureApplication() -> bool:
+    """应用平台原生进程行为，例如隐藏 macOS Dock 图标。"""
+    configure = getattr(_impl, "configureApplication", None)
+    if configure is None:
+        return True
+    return bool(configure())
+
+
+def configureWindow(window, topmost: bool) -> bool:
+    """应用平台原生窗口行为；无额外要求的平台视为成功。"""
+    configure = getattr(_impl, "configureWindow", None)
+    if configure is None:
+        return True
+    return bool(configure(window, topmost))
+
+
 def setWindowTopmost(handle: int, topmost: bool) -> bool:
     """把窗口设为置顶 / 取消置顶。"""
     if not handle:

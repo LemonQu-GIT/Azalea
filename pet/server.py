@@ -293,6 +293,24 @@ async def websocket_endpoint(websocket: WebSocket):
             elif command == "end_drag":
                 emitter.drag_ended.emit()
 
+            elif command == "right_press":
+                emitter.global_right_press.emit(
+                    int(data.get("screen_x", 0)),
+                    int(data.get("screen_y", 0)),
+                )
+
+            elif command == "right_move":
+                emitter.global_right_move.emit(
+                    int(data.get("screen_x", 0)),
+                    int(data.get("screen_y", 0)),
+                )
+
+            elif command == "right_release":
+                screen_x = int(data.get("screen_x", 0))
+                screen_y = int(data.get("screen_y", 0))
+                emitter.global_right_release.emit(screen_x, screen_y)
+                emitter.model_right_clicked.emit(screen_x, screen_y)
+
             elif command == "right_click_model":
                 emitter.model_right_clicked.emit(
                     int(data.get("screen_x", 0)),

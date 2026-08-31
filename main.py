@@ -70,6 +70,14 @@ def main():
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    _platform_utils.configureApplication()
+    if sys.platform == "darwin":
+        accessibility_trusted, input_monitoring_trusted = (
+            _platform_utils.requestPermissions()
+        )
+    else:
+        accessibility_trusted = True
+        input_monitoring_trusted = True
 
     if sys.platform.startswith("linux") and app.platformName() != "xcb":
         # 静态输入区域（点击/拖拽/穿透）依赖 X11 SHAPE，wayland 插件下 winId
@@ -78,12 +86,17 @@ def main():
             f"当前 Qt 平台为 {app.platformName()}（非 xcb），点击穿透与窗口交互将退化；"
             "请勿显式设置 QT_QPA_PLATFORM=wayland",
             "WARNING")
-    elif sys.platform == "darwin" and not _platform_utils.isAccessibilityTrusted():
-        _pet_utils.log(
-            "尚未授予辅助功能权限：全局鼠标监听和移动其他应用窗口将不可用；"
-            "桌宠显示、渲染和窗口位置跟踪仍可使用",
-            "WARNING",
-        )
+    elif sys.platform == "darwin":
+        if not accessibility_trusted:
+            _pet_utils.log(
+                "已请求辅助功能权限；授权后请重启应用。未授权时无法移动其他应用窗口",
+                "WARNING",
+            )
+        if not input_monitoring_trusted:
+            _pet_utils.log(
+                "已请求输入监控权限；授权后请重启应用。未授权时全局鼠标监听不可用",
+                "WARNING",
+            )
 
     _tts_sound_entries: list[tuple[QSoundEffect, str]] = []
 

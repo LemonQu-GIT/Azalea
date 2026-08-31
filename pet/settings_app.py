@@ -7,6 +7,8 @@ import sys
 import socket
 import threading
 
+import pet.platform_utils as platform_utils
+
 # 注意：这个文件是设置窗口的独立进程入口。
 # 这里开启 QT_ENABLE_HIGHDPI_SCALING，让 qfluentwidgets 正常显示。
 # 桌宠主进程 (main.py) 会关闭这个设置，两者通过进程隔离解决DPI缩放冲突。
@@ -155,6 +157,7 @@ def main():
     )
 
     app = QApplication(sys.argv)
+    platform_utils.configureApplication()
     # 最后一个窗口关闭时不退出进程（保持预创建）
     app.setQuitOnLastWindowClosed(False)
 

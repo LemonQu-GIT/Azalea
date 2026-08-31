@@ -47,6 +47,60 @@ def is_accessibility_trusted() -> bool:
         return False
 
 
+def is_input_monitoring_trusted() -> bool:
+    if not _MACOS_APIS_OK:
+        return False
+    try:
+        return bool(Quartz.CGPreflightListenEventAccess())
+    except Exception:
+        return False
+
+
+def request_permissions() -> tuple[bool, bool]:
+    """Request Accessibility and Input Monitoring through macOS TCC."""
+    if not _MACOS_APIS_OK:
+        return False, False
+
+    accessibility_trusted = is_accessibility_trusted()
+    if not accessibility_trusted:
+        try:
+            accessibility_trusted = bool(
+                ApplicationServices.AXIsProcessTrustedWithOptions(
+                    {
+                        ApplicationServices.kAXTrustedCheckOptionPrompt: True,
+                    }
+                )
+            )
+        except Exception:
+            pass
+
+    input_monitoring_trusted = is_input_monitoring_trusted()
+    if not input_monitoring_trusted:
+        try:
+            input_monitoring_trusted = bool(
+                Quartz.CGRequestListenEventAccess()
+            )
+        except Exception:
+            pass
+
+    return accessibility_trusted, input_monitoring_trusted
+
+
+def configureApplication() -> bool:
+    """Run as a menu-bar accessory app without a macOS Dock icon."""
+    if not _MACOS_APIS_OK:
+        return False
+    try:
+        app = AppKit.NSApplication.sharedApplication()
+        return bool(
+            app.setActivationPolicy_(
+                AppKit.NSApplicationActivationPolicyAccessory
+            )
+        )
+    except Exception:
+        return False
+
+
 def _ns_window(qt_window):
     if not _MACOS_APIS_OK or qt_window is None:
         return None
@@ -403,6 +457,36 @@ def getDesktopBounds() -> tuple[int, int, int, int]:
 def getScreenSize() -> tuple[int, int]:
     left, top, right, bottom = getDesktopBounds()
     return right - left, bottom - top
+
+
+def configureWindow(qt_window, topmost: bool) -> bool:
+    """Apply persistent desktop-pet behavior to a Qt-created NSWindow."""
+    window = _ns_window(qt_window)
+    if window is None:
+        return False
+    try:
+        handle = int(window.windowNumber())
+        _native_windows[handle] = window
+
+        behavior = int(window.collectionBehavior())
+        behavior |= int(AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces)
+        behavior |= int(AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
+        behavior |= int(AppKit.NSWindowCollectionBehaviorStationary)
+        behavior |= int(AppKit.NSWindowCollectionBehaviorIgnoresCycle)
+        window.setCollectionBehavior_(behavior)
+        window.setHidesOnDeactivate_(False)
+
+        level = (
+            AppKit.NSFloatingWindowLevel
+            if topmost
+            else AppKit.NSNormalWindowLevel
+        )
+        window.setLevel_(level)
+        if topmost:
+            window.orderFrontRegardless()
+        return True
+    except Exception:
+        return False
 
 
 def setWindowTopmost(handle: int, topmost: bool) -> bool:
