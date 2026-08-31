@@ -145,13 +145,6 @@ def isInputMonitoringTrusted() -> bool:
     return bool(checker()) if checker is not None else True
 
 
-def requestPermissions() -> tuple[bool, bool]:
-    request = getattr(_impl, "request_permissions", None)
-    if request is None:
-        return True, True
-    return request()
-
-
 def configureApplication() -> bool:
     """应用平台原生进程行为，例如隐藏 macOS Dock 图标。"""
     configure = getattr(_impl, "configureApplication", None)

@@ -56,36 +56,6 @@ def is_input_monitoring_trusted() -> bool:
         return False
 
 
-def request_permissions() -> tuple[bool, bool]:
-    """Request Accessibility and Input Monitoring through macOS TCC."""
-    if not _MACOS_APIS_OK:
-        return False, False
-
-    accessibility_trusted = is_accessibility_trusted()
-    if not accessibility_trusted:
-        try:
-            accessibility_trusted = bool(
-                ApplicationServices.AXIsProcessTrustedWithOptions(
-                    {
-                        ApplicationServices.kAXTrustedCheckOptionPrompt: True,
-                    }
-                )
-            )
-        except Exception:
-            pass
-
-    input_monitoring_trusted = is_input_monitoring_trusted()
-    if not input_monitoring_trusted:
-        try:
-            input_monitoring_trusted = bool(
-                Quartz.CGRequestListenEventAccess()
-            )
-        except Exception:
-            pass
-
-    return accessibility_trusted, input_monitoring_trusted
-
-
 def configureApplication() -> bool:
     """Run as a menu-bar accessory app without a macOS Dock icon."""
     if not _MACOS_APIS_OK:

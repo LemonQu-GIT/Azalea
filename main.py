@@ -72,12 +72,8 @@ def main():
     app.setQuitOnLastWindowClosed(False)
     _platform_utils.configureApplication()
     if sys.platform == "darwin":
-        accessibility_trusted, input_monitoring_trusted = (
-            _platform_utils.requestPermissions()
-        )
-    else:
-        accessibility_trusted = True
-        input_monitoring_trusted = True
+        accessibility_trusted = _platform_utils.isAccessibilityTrusted()
+        input_monitoring_trusted = _platform_utils.isInputMonitoringTrusted()
 
     if sys.platform.startswith("linux") and app.platformName() != "xcb":
         # 静态输入区域（点击/拖拽/穿透）依赖 X11 SHAPE，wayland 插件下 winId
@@ -87,14 +83,14 @@ def main():
             "请勿显式设置 QT_QPA_PLATFORM=wayland",
             "WARNING")
     elif sys.platform == "darwin":
+        _pet_utils.log(
+            "macOS 输入监控状态："
+            + ("已授权" if input_monitoring_trusted else "未授权"),
+            "INFO" if input_monitoring_trusted else "WARNING",
+        )
         if not accessibility_trusted:
             _pet_utils.log(
-                "已请求辅助功能权限；授权后请重启应用。未授权时无法移动其他应用窗口",
-                "WARNING",
-            )
-        if not input_monitoring_trusted:
-            _pet_utils.log(
-                "已请求输入监控权限；授权后请重启应用。未授权时全局鼠标监听不可用",
+                "macOS 辅助功能状态：未授权；无法移动其他应用窗口",
                 "WARNING",
             )
 
