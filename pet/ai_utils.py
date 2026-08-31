@@ -3,6 +3,7 @@ import openai
 from openai.types.chat.chat_completion import ChatCompletion
 import requests
 import json
+import ast
 import base64
 from PIL import Image
 import numpy as np
@@ -277,23 +278,45 @@ class Actions:
 
 
 def format_response(resp: str) -> list | dict | None:
+    text = str(resp).strip()
+    if not text:
+        return None
+
     try:
-        answer = json.loads(resp)
-        return answer
-    except:
-        if "```" in resp:
-            resp = resp.replace(
-                "```json\n", "").replace("```", "").strip()
+        answer = json.loads(text)
+        return answer if isinstance(answer, (list, dict)) else None
+    except json.JSONDecodeError:
+        pass
+
+    # 兼容模型在最终 JSON 前输出分析文字的情况。逐个尝试可能的 JSON
+    # 起始位置，并采用最后一个有效的列表/对象（最终答案通常位于末尾）。
+    decoder = json.JSONDecoder()
+    decoded: list[tuple[int, int, list | dict]] = []
+    for index, char in enumerate(text):
+        if char not in "[{":
+            continue
         try:
-            answer = json.loads(resp)
+            value, end = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, (list, dict)):
+            decoded.append((end, index, value))
+    if decoded:
+        # 外层列表/对象的结束位置晚于其内部元素，因此不会误取最后一个
+        # action 对象而丢掉整个 action 列表。
+        return max(decoded, key=lambda item: (item[0], -item[1]))[2]
+
+    # 少数兼容模型会返回 Python 字面量（单引号等）；只使用安全解析，
+    # 不执行模型返回的任意代码。
+    try:
+        answer = ast.literal_eval(text)
+        if isinstance(answer, (list, dict)):
             return answer
-        except:
-            try:
-                answer = eval(resp)
-                return answer
-            except:
-                warnings.warn(f"Unparseable response: {resp}")
-                return None
+    except (SyntaxError, ValueError):
+        pass
+
+    warnings.warn(f"Unparseable response: {resp}")
+    return None
 
 
 def img2base64(img: np.ndarray | Image.Image) -> str:
