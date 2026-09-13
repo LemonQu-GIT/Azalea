@@ -7,8 +7,8 @@ import json
 
 import requests
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -77,6 +77,34 @@ try:
     qconfig.load(_theme_cfg_path, themeCfg)
 except Exception:
     pass
+
+
+def _create_app_icon() -> QIcon:
+    """Create a compact icon that remains visible in the macOS menu bar."""
+    mode = themeCfg.themeMode.value
+    dark = mode == Theme.DARK or (
+        mode == Theme.AUTO and bool(darkdetect.isDark())
+    )
+    color = QColor(255, 255, 255) if dark else QColor(24, 24, 24)
+
+    pixmap = QPixmap(44, 44)
+    pixmap.setDevicePixelRatio(2.0)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    for x, y in ((11, 4.5), (16.8, 8.8), (14.8, 15.8),
+                 (7.2, 15.8), (5.2, 8.8)):
+        painter.drawEllipse(QPointF(x, y), 3.0, 3.8)
+    painter.drawEllipse(QPointF(11, 11), 3.2, 3.2)
+    painter.end()
+    icon = QIcon(pixmap)
+    if sys.platform == "darwin":
+        # macOS 菜单栏按模板图标的 alpha 蒙版自动适配亮/暗背景。
+        icon.setIsMask(True)
+    return icon
 
 
 class LineEditSettingCard(SettingCard):
@@ -719,8 +747,7 @@ class SettingsWindow(SplitFluentWindow):
 
     def initWindow(self):
         self.setWindowTitle(t("桌宠设置"))
-        self.setWindowIcon(QIcon(
-            './front/icon_light' if themeCfg.themeMode.value == Theme.LIGHT else './front/icon_dark'))
+        self.setWindowIcon(_create_app_icon())
         self._center_window()
 
     def _center_window(self):
@@ -745,9 +772,11 @@ class SystemTray(QSystemTrayIcon):
         super().__init__(parent)
         self.pet_window = pet_window
 
-        self.setIcon(QIcon('./front/icon_light' if themeCfg.themeMode.value ==
-                     Theme.LIGHT else './front/icon_dark'))
+        self.setIcon(_create_app_icon())
         self.setToolTip(t("AI 桌宠"))
+        themeCfg.themeMode.valueChanged.connect(
+            lambda _item: self.setIcon(_create_app_icon())
+        )
 
         menu = QMenu()
         show_action = QAction(t("显示/隐藏桌宠"), self)

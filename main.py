@@ -17,6 +17,7 @@ from pet.tray import SystemTray
 from pet.server import ws_manager
 from pet.pet_api import request_hit_test
 from pet.signals import emitter as _signals_emitter
+import pet.platform_utils as _platform_utils
 import pet.server as _pet_server_module
 import pet.utils as _pet_utils
 
@@ -69,6 +70,10 @@ def main():
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    _platform_utils.configureApplication()
+    if sys.platform == "darwin":
+        accessibility_trusted = _platform_utils.isAccessibilityTrusted()
+        input_monitoring_trusted = _platform_utils.isInputMonitoringTrusted()
 
     if sys.platform.startswith("linux") and app.platformName() != "xcb":
         # 静态输入区域（点击/拖拽/穿透）依赖 X11 SHAPE，wayland 插件下 winId
@@ -77,6 +82,17 @@ def main():
             f"当前 Qt 平台为 {app.platformName()}（非 xcb），点击穿透与窗口交互将退化；"
             "请勿显式设置 QT_QPA_PLATFORM=wayland",
             "WARNING")
+    elif sys.platform == "darwin":
+        _pet_utils.log(
+            "macOS 输入监控状态："
+            + ("已授权" if input_monitoring_trusted else "未授权"),
+            "INFO" if input_monitoring_trusted else "WARNING",
+        )
+        if not accessibility_trusted:
+            _pet_utils.log(
+                "macOS 辅助功能状态：未授权；无法移动其他应用窗口",
+                "WARNING",
+            )
 
     _tts_sound_entries: list[tuple[QSoundEffect, str]] = []
 

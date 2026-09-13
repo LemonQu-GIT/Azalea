@@ -67,6 +67,10 @@
         active: false,
         pointerId: null,
       };
+      const rightPointerState = {
+        active: false,
+        pointerId: null,
+      };
 
       function getScreenCoordinates(event) {
         return {
@@ -91,6 +95,23 @@
       }
 
       function handlePointerDown(event) {
+        if (event.button === 2) {
+          if (!isPointOnModel(event.clientX, event.clientY)) {
+            rightPointerState.active = false;
+            rightPointerState.pointerId = null;
+            return;
+          }
+
+          event.preventDefault();
+          rightPointerState.active = true;
+          rightPointerState.pointerId = event.pointerId ?? null;
+          if (event.pointerId != null) {
+            renderer.domElement.setPointerCapture(event.pointerId);
+          }
+          sendDragCommand("right_press", event);
+          return;
+        }
+
         if (event.button !== 0) {
           return;
         }
@@ -111,6 +132,12 @@
       }
 
       function handlePointerMove(event) {
+        if (rightPointerState.active) {
+          event.preventDefault();
+          sendDragCommand("right_move", event);
+          return;
+        }
+
         if (!dragState.active) {
           return;
         }
@@ -120,6 +147,20 @@
       }
 
       function handlePointerUp(event) {
+        if (rightPointerState.active && event.button === 2) {
+          event.preventDefault();
+          rightPointerState.active = false;
+          if (
+            event.pointerId != null &&
+            rightPointerState.pointerId === event.pointerId
+          ) {
+            renderer.domElement.releasePointerCapture(event.pointerId);
+          }
+          rightPointerState.pointerId = null;
+          sendDragCommand("right_release", event);
+          return;
+        }
+
         if (!dragState.active) {
           return;
         }
@@ -142,9 +183,14 @@
         ["pointerup", handlePointerUp],
         [
           "pointercancel",
-          () => {
+          (event) => {
             dragState.active = false;
             dragState.pointerId = null;
+            if (rightPointerState.active) {
+              rightPointerState.active = false;
+              rightPointerState.pointerId = null;
+              sendDragCommand("right_release", event);
+            }
           },
         ],
         ["mousedown", handlePointerDown],
@@ -154,6 +200,9 @@
 
       pointerEventNames.forEach(([name, handler]) => {
         renderer.domElement.addEventListener(name, handler);
+      });
+      renderer.domElement.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
       });
 
       // 光照默认值：与 /render_config 返回的 configs/config.json 3dmodel.light

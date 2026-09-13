@@ -820,8 +820,8 @@ def run_with_tui():
 
 
 def main():
-    if platform.system() not in ("Windows", "Linux"):
-        print("本项目目前仅支持Windows和Linux系统")
+    if platform.system() not in ("Windows", "Linux", "Darwin"):
+        print("本项目目前仅支持 Windows、Linux 和 macOS 系统")
         sys.exit(1)
 
     if not os.path.exists(CONFIG_PATH):
